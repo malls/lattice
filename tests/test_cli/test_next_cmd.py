@@ -157,8 +157,8 @@ class TestNextStatusOverride:
         parsed = json.loads(result.output)
         assert parsed["data"] is None
 
-        # But with --status override, it will
-        result = invoke("next", "--status", "review", "--json")
+        # But with --status override, it will (pass --actor since task is auto-assigned)
+        result = invoke("next", "--status", "review", "--actor", "human:test", "--json")
         parsed = json.loads(result.output)
         assert parsed["data"]["title"] == "Review task"
 
@@ -253,6 +253,8 @@ class TestNextClaimTransitions:
         invoke("status", task_id, "in_planning", "--actor", "human:test")
         fill_plan(task_id, "Planned task")
         invoke("status", task_id, "planned", "--actor", "human:test")
+        # Unassign so a different actor can claim it
+        invoke("assign", task_id, "none", "--actor", "human:test")
 
         result = invoke(
             "next", "--actor", "agent:claude", "--status", "planned", "--claim", "--json"

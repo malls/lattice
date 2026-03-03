@@ -117,15 +117,16 @@ class TestFullLifecycleWorkflow:
         event_types = [e["type"] for e in events]
         expected_types = [
             "task_created",
-            "status_changed",
-            "status_changed",
-            "status_changed",
-            "assignment_changed",
+            "assignment_changed",  # auto-assign on transition to in_planning
+            "status_changed",      # backlog -> in_planning
+            "status_changed",      # in_planning -> planned
+            "status_changed",      # planned -> in_progress (already assigned)
+            "assignment_changed",  # explicit assign to agent:bot
             "comment_added",
             "relationship_added",
             "artifact_attached",
-            "status_changed",
-            "status_changed",
+            "status_changed",      # in_progress -> review
+            "status_changed",      # review -> done
             "task_archived",
         ]
         assert event_types == expected_types
@@ -528,15 +529,16 @@ class TestShowAfterMultipleOperations:
         show_data = data["data"]
         events = show_data["events"]
 
-        # 1 create + 2 status + 1 assign + 1 comment + 1 update = 6
-        assert len(events) == 6
+        # 1 create + 1 auto-assign + 2 status + 1 assign + 1 comment + 1 update = 7
+        assert len(events) == 7
 
         event_types = [e["type"] for e in events]
         assert event_types == [
             "task_created",
-            "status_changed",
-            "status_changed",
-            "assignment_changed",
+            "assignment_changed",  # auto-assign on transition to in_planning
+            "status_changed",      # backlog -> in_planning
+            "status_changed",      # in_planning -> planned
+            "assignment_changed",  # explicit assign to agent:worker
             "comment_added",
             "field_updated",
         ]
@@ -545,3 +547,98 @@ class TestShowAfterMultipleOperations:
         assert show_data["status"] == "planned"
         assert show_data["assigned_to"] == "agent:worker"
         assert show_data["priority"] == "high"
+
+
+# ---------------------------------------------------------------------------
+# Auto-assign on active status transitions (LAT-187)
+# ---------------------------------------------------------------------------
+
+
+class TestAutoAssignOnActiveTransition:
+    """Transitioning to in_planning or in_progress should auto-assign the actor
+    when the task is currently unassigned."""
+
+    def test_auto_assign_on_in_planning(self, invoke, create_task, initialized_root):
+        """Moving an unassigned task to in_planning auto-assigns the actor."""
+        task = create_task("Auto-assign planning test")
+        task_id = task["id"]
+
+        r = invoke("status", task_id, "in_planning", "--actor", "agent:planner", "--json")
+        assert r.exit_code == 0
+        snapshot = json.loads(r.output)["data"]
+        assert snapshot["assigned_to"] == "agent:planner"
+
+        # Verify both events were emitted
+        events = _read_events(initialized_root / ".lattice", task_id)
+        event_types = [e["type"] for e in events]
+        assert "assignment_changed" in event_types
+        # assignment_changed should come before the status_changed to in_planning
+        assign_idx = event_types.index("assignment_changed")
+        status_idx = [
+            i for i, e in enumerate(events)
+            if e["type"] == "status_changed" and e["data"]["to"] == "in_planning"
+        ][0]
+        assert assign_idx < status_idx
+
+    def test_auto_assign_on_in_progress(self, invoke, create_task, initialized_root):
+        """Moving an unassigned task to in_progress auto-assigns the actor."""
+        task = create_task("Auto-assign progress test")
+        task_id = task["id"]
+        lattice_dir = initialized_root / ".lattice"
+
+        # Move through planning stages first
+        invoke("status", task_id, "in_planning", "--actor", "human:manager")
+        # Unassign so we can test auto-assign on in_progress
+        invoke("assign", task_id, "none", "--actor", "human:manager")
+        # Fill plan
+        plan_path = lattice_dir / "plans" / f"{task_id}.md"
+        plan_path.write_text("# Plan\n\nDo the thing.\n")
+        invoke("status", task_id, "planned", "--actor", "human:manager")
+
+        r = invoke("status", task_id, "in_progress", "--actor", "agent:worker", "--json")
+        assert r.exit_code == 0
+        snapshot = json.loads(r.output)["data"]
+        assert snapshot["assigned_to"] == "agent:worker"
+
+    def test_no_auto_assign_when_already_assigned(self, invoke, create_task, initialized_root):
+        """If the task is already assigned, auto-assign should NOT fire."""
+        task = create_task("Already assigned test")
+        task_id = task["id"]
+        lattice_dir = initialized_root / ".lattice"
+
+        # Assign to agent:alpha first
+        invoke("assign", task_id, "agent:alpha", "--actor", "human:manager")
+
+        # Move to in_planning as a different actor
+        r = invoke("status", task_id, "in_planning", "--actor", "agent:beta", "--json")
+        assert r.exit_code == 0
+        snapshot = json.loads(r.output)["data"]
+        # Should still be assigned to agent:alpha, NOT auto-assigned to agent:beta
+        assert snapshot["assigned_to"] == "agent:alpha"
+
+        # Verify no extra assignment_changed for the status transition
+        events = _read_events(lattice_dir, task_id)
+        # Only the initial explicit assign, no auto-assign
+        assign_events = [e for e in events if e["type"] == "assignment_changed"]
+        assert len(assign_events) == 1
+        assert assign_events[0]["data"]["to"] == "agent:alpha"
+
+    def test_no_auto_assign_on_non_active_status(self, invoke, create_task, initialized_root):
+        """Transitioning to planned, review, etc. should NOT auto-assign."""
+        task = create_task("Non-active status test")
+        task_id = task["id"]
+        lattice_dir = initialized_root / ".lattice"
+
+        # in_planning auto-assigns (that's expected)
+        invoke("status", task_id, "in_planning", "--actor", "human:test")
+        # Unassign
+        invoke("assign", task_id, "none", "--actor", "human:test")
+        # Fill plan
+        plan_path = lattice_dir / "plans" / f"{task_id}.md"
+        plan_path.write_text("# Plan\n\nDo the thing.\n")
+
+        # Move to planned — should NOT auto-assign
+        r = invoke("status", task_id, "planned", "--actor", "agent:worker", "--json")
+        assert r.exit_code == 0
+        snapshot = json.loads(r.output)["data"]
+        assert snapshot["assigned_to"] is None

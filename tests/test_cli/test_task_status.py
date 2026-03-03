@@ -182,6 +182,8 @@ class TestCompletionPolicyGating:
         invoke("status", task_id, "planned", "--actor", _ACTOR)
         invoke("status", task_id, "in_progress", "--actor", _ACTOR)
         invoke("status", task_id, "review", "--actor", _ACTOR)
+        # Unassign to test that require_assigned blocks completion
+        invoke("assign", task_id, "none", "--actor", _ACTOR)
 
         r = invoke("status", task_id, "done", "--actor", _ACTOR, "--json")
         assert r.exit_code != 0

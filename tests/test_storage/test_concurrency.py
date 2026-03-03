@@ -310,8 +310,8 @@ class TestConcurrentStatusChanges:
         event_lines = event_path.read_text().strip().split("\n")
         events = [json.loads(line) for line in event_lines]
 
-        # task_created + status(in_planning) + 2 concurrent changes = 4
-        assert len(events) == 4
+        # task_created + auto-assign + status(in_planning) + 2 concurrent changes = 5
+        assert len(events) == 5
 
         status_events = [e for e in events if e["type"] == "status_changed"]
         assert len(status_events) == 3  # in_planning + planned + cancelled

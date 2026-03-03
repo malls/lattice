@@ -567,14 +567,15 @@ class TestCrossCutting:
 
         events_path = initialized_root / ".lattice" / "events" / f"{task_id}.jsonl"
         lines = events_path.read_text().strip().split("\n")
-        # 1 create + 1 status + 1 update + 1 assign + 1 comment = 5
-        assert len(lines) == 5
+        # 1 create + 1 auto-assign + 1 status + 1 update + 1 assign + 1 comment = 6
+        assert len(lines) == 6
         types = [json.loads(line)["type"] for line in lines]
         assert types == [
             "task_created",
+            "assignment_changed",  # auto-assign on transition to in_planning
             "status_changed",
             "field_updated",
-            "assignment_changed",
+            "assignment_changed",  # explicit assign to human:bob
             "comment_added",
         ]
 

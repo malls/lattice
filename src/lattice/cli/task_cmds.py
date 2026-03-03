@@ -631,6 +631,29 @@ def status_cmd(
         reason=provenance_reason,
     )
 
+    # Auto-assign: when transitioning to an active work status and the task
+    # is currently unassigned, automatically assign to the actor performing
+    # the transition.  This prevents "orphan active tasks" that no agent can
+    # find via ``lattice next``.
+    ACTIVE_WORK_STATUSES = frozenset({"in_planning", "in_progress"})
+    events: list[dict] = []
+    auto_assigned = False
+
+    if new_status in ACTIVE_WORK_STATUSES and snapshot.get("assigned_to") is None:
+        assign_event = create_event(
+            type="assignment_changed",
+            task_id=task_id,
+            actor=actor,
+            data={"from": None, "to": actor},
+            model=model,
+            session=session,
+            triggered_by=triggered_by,
+            on_behalf_of=on_behalf_of,
+        )
+        events.append(assign_event)
+        snapshot = apply_event_to_snapshot(snapshot, assign_event)
+        auto_assigned = True
+
     event_data: dict = {
         "from": current_status,
         "to": new_status,
@@ -650,15 +673,17 @@ def status_cmd(
         on_behalf_of=on_behalf_of,
         reason=provenance_reason,
     )
+    events.append(event)
     updated_snapshot = apply_event_to_snapshot(snapshot, event)
-    write_task_event(lattice_dir, task_id, [event], updated_snapshot, config)
+    write_task_event(lattice_dir, task_id, events, updated_snapshot, config)
     if is_backward_transition:
         _append_plan_reset_section(lattice_dir, task_id, actor, event.get("ts"))
 
     display_id = updated_snapshot.get("short_id") or task_id
+    assign_msg = f"  (auto-assigned to {actor})" if auto_assigned else ""
     output_result(
         data=updated_snapshot,
-        human_message=f"Status: {current_status} -> {new_status} ({display_id})",
+        human_message=f"Status: {current_status} -> {new_status} ({display_id}){assign_msg}",
         quiet_value="ok",
         is_json=is_json,
         is_quiet=quiet,
