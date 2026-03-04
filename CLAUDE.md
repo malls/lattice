@@ -18,6 +18,7 @@ The `/lattice` skill covers everything: CLI commands, lifecycle discipline (clai
 ### Project-Specific Conventions
 
 - **Recurring observations become tasks.** Same issue in 2+ sessions? Create a task (`needs_human` if it needs scoping, `backlog` if well-understood).
+- **`needs_human` means actionable NOW.** Only move a task to `needs_human` when a human needs to act *right now* for work to continue. Future checkpoints (quality gates, review gates, approval milestones) stay at `planned` or `backlog` until the work that precedes them is complete. The orchestrator or agent flips them to `needs_human` at the moment they become actionable. This keeps the `needs_human` queue scannable — every item in it is something a human should act on today, not next week.
 - **Where learnings go:** Do not save to auto-memory. Add to this `CLAUDE.md` or propose updating `src/lattice/templates/claude_md_block.py` so every future installation benefits.
 - **Actor format:** `agent:<model-name>` or `human:<name>`
 - **Auto-commit and auto-push** on feature branches.

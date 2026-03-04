@@ -139,7 +139,7 @@ Max cycles:   3 review->rework transitions, then CLI blocks -> needs_human
 
 ### When You're Stuck
 
-Use `needs_human` when you need human decision, approval, or input. This is distinct from `blocked` (generic external dependency) — it creates a scannable queue.
+Use `needs_human` when you need human decision, approval, or input **right now**. This is distinct from `blocked` (generic external dependency) — it creates a scannable queue. **`needs_human` means actionable NOW** — future checkpoints (quality gates, review gates, approval milestones) stay at `planned` or `backlog` until the preceding work is complete. The orchestrator flips them to `needs_human` at the moment they become actionable.
 
 ```
 lattice status <task> needs_human --actor agent:<your-id>
