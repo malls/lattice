@@ -183,6 +183,11 @@ a:hover{text-decoration:underline}
 .board-col-header .lane-color-btn{position:absolute;right:4px;top:4px;width:20px;height:20px;border:2px solid var(--lane-btn-border);border-radius:50%;cursor:pointer;padding:0;background:transparent;opacity:0;transition:opacity .2s}
 .board-col-header:hover .lane-color-btn{opacity:1}
 .board-col-body{padding:8px}
+.board-col.empty-col .board-col-header{padding:8px 8px;font-size:.75rem;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;justify-content:flex-start}
+.board-col.empty-col .board-col-header .count{display:none}
+.board-col.empty-col .board-col-header .lane-color-btn{display:none}
+.board-col.empty-col .board-col-body{padding:4px}
+.board-col.empty-col .board-col-body>div{font-size:.7rem;padding:4px}
 .board-sub-header{font-size:.75rem;font-weight:600;color:var(--text-muted);padding:6px 4px 4px;margin-top:4px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
 .board-sub-header:first-child{margin-top:0;border-top:none}
 .board-sub-header .count{font-weight:400;font-size:.7rem;opacity:.7}
@@ -2135,6 +2140,7 @@ async function init() {
     if (dc.voice && VOICES[dc.voice]) {
       currentVoice = dc.voice;
     }
+    updateProjectBranding();
     updateAllBadges();
     applyTheme(getTheme());
     populateThemeSelector();
@@ -3639,6 +3645,20 @@ function getDashboardConfig() {
   return (config && config.dashboard) || {};
 }
 
+function updateProjectBranding() {
+  var name = (config && config.project_name) || (config && config.project_code) || '';
+  var brand = document.querySelector('.nav-brand');
+  if (!brand) return;
+  if (name) {
+    var display = name.length > 24 ? name.slice(0, 22) + '\u2026' : name;
+    brand.textContent = display;
+    document.title = display + ' \u2014 Lattice';
+  } else {
+    brand.textContent = 'Lattice';
+    document.title = 'Lattice';
+  }
+}
+
 function getLaneColor(status) {
   var dc = getDashboardConfig();
   if (dc.lane_colors && dc.lane_colors[status]) return dc.lane_colors[status];
@@ -4007,14 +4027,21 @@ function renderBoard() {
   var allStatuses = statuses.concat(Object.keys(grouped).filter(function(s) { return !statuses.includes(s); }));
   var colCount = allStatuses.length || 1;
 
+  // Build per-column widths: full width for columns with items, narrow for empty
+  var colWidths = allStatuses.map(function(status) {
+    var items = grouped[status] || [];
+    return items.length > 0 ? 'var(--col-min-w)' : '120px';
+  }).join(' ');
+
   var html = '<div class="board-wrapper">';
 
   // Board columns
   html += '<div class="board-scroll-outer"><div class="board-scroll">';
-  html += '<div class="board" style="grid-template-columns:repeat(' + colCount + ',var(--col-min-w))">';
+  html += '<div class="board" style="grid-template-columns:' + colWidths + '">';
   allStatuses.forEach(function(status) {
     var items = grouped[status] || [];
     var cls = "status-" + status.replace(/\s+/g,"_");
+    if (items.length === 0) cls += " empty-col";
     var laneColor = getLaneColor(status);
     html += '<div class="board-col ' + cls + '" data-status="' + esc(status) + '"';
     html += ' ondragover="window._boardDragOver(event)" ondragleave="window._boardDragLeave(event)" ondrop="window._boardDrop(event)">';
@@ -6084,6 +6111,7 @@ document.getElementById("refresh-btn").addEventListener("click", async function(
     archivedTasks = null;
     var dc = (config && config.dashboard) || {};
     if (dc.voice && VOICES[dc.voice]) currentVoice = dc.voice;
+    updateProjectBranding();
     updateAllBadges();
     applyTheme(getTheme());
     populateThemeSelector();
