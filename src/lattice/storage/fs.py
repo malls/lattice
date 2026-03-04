@@ -85,6 +85,7 @@ def ensure_lattice_dirs(root: Path) -> None:
         "archive/notes",
         "archive/plans",
         "locks",
+        "templates",
     ]
     for subdir in subdirs:
         (lattice / subdir).mkdir(parents=True, exist_ok=True)

@@ -573,9 +573,9 @@ class TestValidateCompletionPolicy:
 
 class TestGetConfiguredRoles:
     def test_default_config_includes_explicit_roles(self) -> None:
-        """Default config defines workflow.roles: ['review']."""
+        """Default config defines workflow.roles with review roles."""
         config = default_config()
-        assert get_configured_roles(config) == {"review"}
+        assert get_configured_roles(config) == {"review", "plan-review", "review-individual"}
 
     def test_no_roles_no_policies_returns_empty(self) -> None:
         """Config with neither workflow.roles nor completion policies → empty set."""

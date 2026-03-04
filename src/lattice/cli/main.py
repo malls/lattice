@@ -362,6 +362,24 @@ def cli(ctx: click.Context) -> None:
     default=None,
     help="One-line description of what this project is.",
 )
+@click.option(
+    "--review-mode",
+    type=click.Choice(["inline", "single", "triple"], case_sensitive=False),
+    default=None,
+    help="Code review mode: inline (self-review), single (one agent), triple (three models).",
+)
+@click.option(
+    "--plan-review-mode",
+    type=click.Choice(["inline", "single", "triple"], case_sensitive=False),
+    default=None,
+    help="Plan review mode: inline (no review), single (one agent), triple (three models).",
+)
+@click.option(
+    "--plan-approval",
+    type=click.Choice(["auto", "human"], case_sensitive=False),
+    default=None,
+    help="Plan approval gate: auto (advance on pass) or human (require human approval).",
+)
 def init(
     target_path: str,
     actor: str | None,
@@ -376,6 +394,9 @@ def init(
     setup_agents: bool | None,
     seed: bool | None,
     project_description: str | None,
+    review_mode: str | None,
+    plan_review_mode: str | None,
+    plan_approval: str | None,
 ) -> None:
     """Initialize a new Lattice project."""
     root = Path(target_path)
@@ -563,6 +584,12 @@ def init(
             config["model"] = model
         if heartbeat:
             config["heartbeat"] = {"enabled": True, "max_advances": 10}
+        if review_mode:
+            config["review_mode"] = review_mode
+        if plan_review_mode:
+            config["plan_review_mode"] = plan_review_mode
+        if plan_approval:
+            config["plan_approval"] = plan_approval
         config_content = serialize_config(config)
         atomic_write(lattice_dir / "config.json", config_content)
 

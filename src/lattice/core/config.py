@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 
 class WipLimits(TypedDict, total=False):
@@ -142,6 +142,9 @@ class LatticeConfig(TypedDict, total=False):
     project_name: str
     model: str
     dashboard_port: int
+    review_mode: Literal["inline", "single", "triple"]
+    plan_review_mode: Literal["inline", "single", "triple"]
+    plan_approval: Literal["auto", "human"]
 
 
 def default_config(preset: str = "classic") -> LatticeConfig:
@@ -190,7 +193,7 @@ def default_config(preset: str = "classic") -> LatticeConfig:
             "cancelled": [],
         },
         "universal_targets": ["needs_human", "cancelled"],
-        "roles": ["review"],
+        "roles": ["review", "plan-review", "review-individual"],
         "wip_limits": {
             "in_progress": 10,
             "review": 5,
@@ -214,6 +217,9 @@ def default_config(preset: str = "classic") -> LatticeConfig:
         ],
         "workflow": workflow,
         "workflow_preset": preset,
+        "review_mode": "single",
+        "plan_review_mode": "inline",
+        "plan_approval": "auto",
     }
 
     return config
