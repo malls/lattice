@@ -2,6 +2,8 @@
 
 <p align="center"><b><i>Linear for agent/human hyper-engineers.</i></b></p>
 
+[demo-timelapse.webm](https://github.com/user-attachments/assets/e2295b56-5807-4255-a987-f09bfbac44ad)
+
 ---
 
 listen.
