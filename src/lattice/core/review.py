@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import glob as glob_mod
 import json
 import os
 import subprocess
@@ -16,9 +17,11 @@ from typing import Any
 # Constants
 # ---------------------------------------------------------------------------
 
-AGENT_TIMEOUT = 600  # 10 minutes
+DEFAULT_AGENT_TIMEOUT = 600  # 10 minutes
+FAILURE_THRESHOLD = 2  # auto-create diagnostic task after this many failures
 
 REVIEW_STATE_DIR = "review_state"
+FAILURES_FILE = "failures.jsonl"
 
 
 # ---------------------------------------------------------------------------
@@ -55,6 +58,147 @@ def clear_review_state(lattice_dir: Path, task_id: str) -> None:
     """Remove in-flight review state after completion."""
     path = _state_path(lattice_dir, task_id)
     path.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Persistent failure tracking
+# ---------------------------------------------------------------------------
+
+
+def _failures_path(lattice_dir: Path) -> Path:
+    return lattice_dir / REVIEW_STATE_DIR / FAILURES_FILE
+
+
+def record_agent_failure(lattice_dir: Path, agent_type: str, task_id: str) -> int:
+    """Record that an agent failed a review. Returns the total failure count for this agent."""
+    state_dir = lattice_dir / REVIEW_STATE_DIR
+    state_dir.mkdir(exist_ok=True)
+    path = _failures_path(lattice_dir)
+    entry = json.dumps({
+        "agent": agent_type,
+        "task_id": task_id,
+        "timestamp": _now_iso(),
+    }, sort_keys=True, separators=(",", ":"))
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(entry + "\n")
+    return count_agent_failures(lattice_dir, agent_type)
+
+
+def count_agent_failures(lattice_dir: Path, agent_type: str) -> int:
+    """Count how many times an agent has failed reviews on this board."""
+    path = _failures_path(lattice_dir)
+    if not path.exists():
+        return 0
+    count = 0
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+                if entry.get("agent") == agent_type:
+                    count += 1
+            except json.JSONDecodeError:
+                continue
+    except OSError:
+        return 0
+    return count
+
+
+def create_failure_diagnostic_task(
+    lattice_dir: Path,
+    agent_type: str,
+    failure_count: int,
+    actor: str,
+) -> str | None:
+    """Create a needs_human task for investigating persistent agent failures.
+
+    Returns the created task ID, or None on failure.
+    """
+    title = f"Investigate {agent_type} review failures — failed {failure_count} times"
+    try:
+        result = subprocess.run(
+            [
+                "lattice", "create", title,
+                "--actor", actor,
+                "--quiet",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(lattice_dir.parent),
+        )
+        if result.returncode != 0:
+            return None
+        new_task_id = result.stdout.strip()
+        if not new_task_id:
+            return None
+        # Move to needs_human
+        subprocess.run(
+            [
+                "lattice", "status", new_task_id, "needs_human",
+                "--actor", actor,
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(lattice_dir.parent),
+        )
+        return new_task_id
+    except OSError:
+        return None
+
+
+def _handle_agent_failure(
+    lattice_dir: Path,
+    agent_type: str,
+    task_id: str,
+    actor: str,
+) -> str | None:
+    """Record failure and create diagnostic task if threshold exceeded.
+
+    Returns the diagnostic task ID if one was created.
+    """
+    count = record_agent_failure(lattice_dir, agent_type, task_id)
+    if count >= FAILURE_THRESHOLD:
+        return create_failure_diagnostic_task(lattice_dir, agent_type, count, actor)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Temp file cleanup
+# ---------------------------------------------------------------------------
+
+
+def cleanup_temp_files(task_id: str | None = None) -> int:
+    """Remove lattice-review-* and related temp files from the system temp directory.
+
+    If task_id is provided, only removes files whose content contains the task_id.
+    Otherwise removes all matching files.
+
+    Returns the number of files removed.
+    """
+    tmp_root = tempfile.gettempdir()
+    patterns = [
+        os.path.join(tmp_root, "lattice-review-*"),
+        os.path.join(tmp_root, "lattice-merge-*"),
+    ]
+    # Also match per-agent temp dirs
+    for agent in ("claude", "codex", "gemini"):
+        patterns.append(os.path.join(tmp_root, f"lattice-{agent}-*"))
+
+    removed = 0
+    for pattern in patterns:
+        for path_str in glob_mod.glob(pattern):
+            path = Path(path_str)
+            try:
+                if path.is_dir():
+                    import shutil
+                    shutil.rmtree(path, ignore_errors=True)
+                else:
+                    path.unlink(missing_ok=True)
+                removed += 1
+            except OSError:
+                continue
+    return removed
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +382,7 @@ def spawn_agent(
     agent_type: str,
     prompt_file: Path,
     output_file: Path,
-    timeout: int = AGENT_TIMEOUT,
+    timeout: int = DEFAULT_AGENT_TIMEOUT,
 ) -> tuple[bool, str]:
     """Spawn a review agent subprocess and wait for it.
 
@@ -310,18 +454,20 @@ def run_single_review(
     review_type: str,
     prompt_content: str,
     actor: str | dict,
+    timeout: int = DEFAULT_AGENT_TIMEOUT,
 ) -> tuple[bool, str, str | None]:
     """Run a single-agent review.
 
     Returns (success, message, output_text_or_None).
     Stores in-flight state throughout.
     """
+    started_at = _now_iso()
     state: dict[str, Any] = {
         "task_id": task_id,
         "mode": "single",
         "review_type": review_type,
-        "started_at": _now_iso(),
-        "agents": [{"name": "claude", "status": "running", "artifact_id": None}],
+        "started_at": started_at,
+        "agents": [{"name": "claude", "status": "running", "started_at": started_at, "artifact_id": None}],
     }
     write_review_state(lattice_dir, state)
 
@@ -331,12 +477,16 @@ def run_single_review(
         output_file = tmp / "review.md"
         prompt_file.write_text(prompt_content, encoding="utf-8")
 
-        success, text = spawn_agent("claude", prompt_file, output_file)
+        success, text = spawn_agent("claude", prompt_file, output_file, timeout=timeout)
 
+        finished_at = _now_iso()
         state["agents"][0]["status"] = "done" if success else "failed"
+        state["agents"][0]["finished_at"] = finished_at
         write_review_state(lattice_dir, state)
 
         if not success:
+            actor_str = _extract_actor_str(actor)
+            _handle_agent_failure(lattice_dir, "claude", task_id, actor_str)
             clear_review_state(lattice_dir, task_id)
             return False, text, None
 
@@ -350,6 +500,7 @@ def run_triple_review(
     review_type: str,
     prompt_content: str,
     actor: str | dict,
+    timeout: int = DEFAULT_AGENT_TIMEOUT,
 ) -> tuple[bool, str, list[tuple[str, bool, str]]]:
     """Run a triple-agent review (Claude, Codex, Gemini) in parallel.
 
@@ -357,12 +508,16 @@ def run_triple_review(
     The overall_success is True if at least one agent succeeded.
     """
     agents = ["claude", "codex", "gemini"]
+    overall_started = _now_iso()
     state: dict[str, Any] = {
         "task_id": task_id,
         "mode": "triple",
         "review_type": review_type,
-        "started_at": _now_iso(),
-        "agents": [{"name": a, "status": "running", "artifact_id": None} for a in agents],
+        "started_at": overall_started,
+        "agents": [
+            {"name": a, "status": "running", "started_at": overall_started, "artifact_id": None}
+            for a in agents
+        ],
     }
     write_review_state(lattice_dir, state)
 
@@ -370,15 +525,21 @@ def run_triple_review(
     lock = threading.Lock()
 
     def _run_agent(idx: int, agent: str, prompt_content: str) -> None:
+        agent_started = _now_iso()
+        with lock:
+            state["agents"][idx]["started_at"] = agent_started
+            write_review_state(lattice_dir, state)
         with tempfile.TemporaryDirectory(prefix=f"lattice-{agent}-") as tmpdir:
             tmp = Path(tmpdir)
             prompt_file = tmp / "prompt.md"
             output_file = tmp / "review.md"
             prompt_file.write_text(prompt_content, encoding="utf-8")
-            success, text = spawn_agent(agent, prompt_file, output_file)
+            success, text = spawn_agent(agent, prompt_file, output_file, timeout=timeout)
+            finished_at = _now_iso()
             with lock:
                 results[idx] = (agent, success, text)
                 state["agents"][idx]["status"] = "done" if success else "failed"
+                state["agents"][idx]["finished_at"] = finished_at
                 write_review_state(lattice_dir, state)
 
     threads = [
@@ -388,7 +549,13 @@ def run_triple_review(
     for t in threads:
         t.start()
     for t in threads:
-        t.join(timeout=AGENT_TIMEOUT + 30)  # slightly longer than per-agent timeout
+        t.join(timeout=timeout + 30)
+
+    # Record failures for persistent tracking
+    actor_str = _extract_actor_str(actor)
+    for agent, success, _text in results:
+        if not success and agent:
+            _handle_agent_failure(lattice_dir, agent, task_id, actor_str)
 
     any_success = any(r[1] for r in results)
     clear_review_state(lattice_dir, task_id)
@@ -463,6 +630,15 @@ def run_merge_agent(
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
+
+def _extract_actor_str(actor: str | dict) -> str:
+    """Extract a flat actor string suitable for --actor flags."""
+    if isinstance(actor, str):
+        return actor
+    if isinstance(actor, dict):
+        return actor.get("name") or actor.get("base_name") or "system:lattice"
+    return "system:lattice"
 
 
 def _now_iso() -> str:

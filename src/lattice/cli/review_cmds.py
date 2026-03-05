@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import subprocess
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -20,6 +22,7 @@ from lattice.cli.helpers import (
 )
 from lattice.cli.main import cli
 from lattice.core.review import (
+    cleanup_temp_files,
     read_review_state,
     run_merge_agent,
     run_single_review,
@@ -110,6 +113,8 @@ def code_review(
         output_path="<write output here>",
     )
 
+    timeout = config.get("review_timeout_seconds", 600)
+
     if mode == "single":
         _run_single_and_store(
             lattice_dir=lattice_dir,
@@ -122,6 +127,7 @@ def code_review(
             quiet=quiet,
             model=model,
             session=session,
+            timeout=timeout,
         )
 
     elif mode == "triple":
@@ -135,6 +141,7 @@ def code_review(
             quiet=quiet,
             model=model,
             session=session,
+            timeout=timeout,
         )
 
 
@@ -212,6 +219,7 @@ def plan_review(
     )
 
     plan_approval = config.get("plan_approval", "auto")
+    timeout = config.get("review_timeout_seconds", 600)
 
     if mode == "single":
         art_id = _run_single_and_store(
@@ -225,6 +233,7 @@ def plan_review(
             quiet=quiet,
             model=model,
             session=session,
+            timeout=timeout,
         )
         if art_id and plan_approval == "human":
             _move_to_needs_human(lattice_dir, task_id, actor, is_json)
@@ -240,6 +249,7 @@ def plan_review(
             quiet=quiet,
             model=model,
             session=session,
+            timeout=timeout,
         )
         if art_ids and plan_approval == "human":
             _move_to_needs_human(lattice_dir, task_id, actor, is_json)
@@ -262,30 +272,47 @@ def review_status(task_id: str, output_json: bool) -> None:
 
     state = read_review_state(lattice_dir, task_id)
     if state is None:
+        # Check if review artifacts exist (review already completed)
+        has_artifacts = _check_review_artifacts(lattice_dir, task_id)
         if is_json:
-            click.echo(json.dumps({"ok": True, "data": {"task_id": task_id, "status": "none"}}, indent=2))
+            data: dict[str, Any] = {"task_id": task_id, "status": "none"}
+            if has_artifacts:
+                data["note"] = "Review artifacts exist — review may have already completed."
+            click.echo(json.dumps({"ok": True, "data": data}, indent=2))
         else:
-            click.echo(f"No in-flight review found for task {task_id}.")
+            if has_artifacts:
+                click.echo(f"No in-flight review for {task_id}. Review artifacts exist — review may have already completed.")
+            else:
+                click.echo(f"No in-flight review found for {task_id}. No review artifacts found either.")
         return
 
+    now = datetime.now(timezone.utc)
+
     if is_json:
+        # Enrich with elapsed times
+        for agent in state.get("agents", []):
+            agent["elapsed"] = _compute_elapsed_str(agent.get("started_at"), agent.get("finished_at"), now)
+        state["elapsed"] = _compute_elapsed_str(state.get("started_at"), None, now)
         click.echo(json.dumps({"ok": True, "data": state}, indent=2))
         return
 
     # Human-readable
+    overall_elapsed = _compute_elapsed_str(state.get("started_at"), None, now)
     click.echo(f"Review status for {task_id}")
     click.echo(f"  mode:         {state.get('mode', '?')}")
     click.echo(f"  review_type:  {state.get('review_type', '?')}")
     click.echo(f"  started_at:   {state.get('started_at', '?')}")
+    click.echo(f"  elapsed:      {overall_elapsed}")
     agents = state.get("agents", [])
     if agents:
         click.echo("  agents:")
         for agent in agents:
             status = agent.get("status", "?")
             name = agent.get("name", "?")
+            elapsed = _compute_elapsed_str(agent.get("started_at"), agent.get("finished_at"), now)
             art_id = agent.get("artifact_id") or ""
             suffix = f"  artifact={art_id}" if art_id else ""
-            click.echo(f"    {name:<10} {status}{suffix}")
+            click.echo(f"    {name:<10} {status} ({elapsed}){suffix}")
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +332,7 @@ def _run_single_and_store(
     quiet: bool,
     model: str | None,
     session: str | None,
+    timeout: int = 600,
 ) -> str | None:
     """Run single-agent review, store artifact, print result. Returns artifact ID or None."""
     click.echo(f"Running {review_type} (single mode)...")
@@ -315,10 +343,12 @@ def _run_single_and_store(
         review_type=review_type,
         prompt_content=prompt,
         actor=actor,
+        timeout=timeout,
     )
 
     if not success:
         click.echo(f"Review failed: {message}", err=True)
+        cleanup_temp_files(task_id)
         return None
 
     assert text is not None
@@ -331,6 +361,8 @@ def _run_single_and_store(
         actor=actor,
         is_json=is_json,
     )
+
+    cleanup_temp_files(task_id)
 
     if art_id:
         if is_json:
@@ -354,6 +386,7 @@ def _run_triple_and_store(
     quiet: bool,
     model: str | None,
     session: str | None,
+    timeout: int = 600,
 ) -> list[str]:
     """Run triple-agent review, store artifacts, print result. Returns list of artifact IDs."""
     click.echo(f"Running {review_type} (triple mode — spawning claude, codex, gemini)...")
@@ -364,6 +397,7 @@ def _run_triple_and_store(
         review_type=review_type,
         prompt_content=prompt,
         actor=actor,
+        timeout=timeout,
     )
 
     artifact_ids: list[str] = []
@@ -389,6 +423,7 @@ def _run_triple_and_store(
     # Merge if at least one succeeded
     if not overall_success:
         click.echo("All agents failed. No merged review produced.", err=True)
+        cleanup_temp_files(task_id)
         return artifact_ids
 
     click.echo("Merging reviews...")
@@ -421,6 +456,7 @@ def _run_triple_and_store(
     else:
         click.echo(f"Merge agent failed: {merged_text}", err=True)
 
+    cleanup_temp_files(task_id)
     return artifact_ids
 
 
@@ -545,3 +581,49 @@ def _move_to_needs_human(
             f"Note: Could not move to needs_human: {result.stderr.strip()}",
             err=True,
         )
+
+
+def _compute_elapsed_str(
+    started_at: str | None,
+    finished_at: str | None,
+    now: datetime,
+) -> str:
+    """Compute a human-readable elapsed time string."""
+    if not started_at:
+        return "?"
+    try:
+        start = datetime.fromisoformat(started_at)
+    except (ValueError, TypeError):
+        return "?"
+    end = now
+    if finished_at:
+        try:
+            end = datetime.fromisoformat(finished_at)
+        except (ValueError, TypeError):
+            pass
+    delta = end - start
+    total_seconds = int(delta.total_seconds())
+    if total_seconds < 0:
+        return "0s"
+    minutes, seconds = divmod(total_seconds, 60)
+    if minutes > 0:
+        return f"{minutes}m {seconds}s"
+    return f"{seconds}s"
+
+
+def _check_review_artifacts(lattice_dir: Path, task_id: str) -> bool:
+    """Check if any review artifacts exist for a task."""
+    artifacts_dir = lattice_dir / "artifacts" / task_id
+    if not artifacts_dir.exists():
+        return False
+    # Check for any files with review-related roles
+    for f in artifacts_dir.iterdir():
+        if f.suffix == ".json":
+            try:
+                meta = json.loads(f.read_text(encoding="utf-8"))
+                role = meta.get("role", "")
+                if "review" in role:
+                    return True
+            except (json.JSONDecodeError, OSError):
+                continue
+    return False
