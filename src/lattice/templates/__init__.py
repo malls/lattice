@@ -18,7 +18,7 @@ def load_review_template(lattice_dir: Path, review_type: str) -> str:
     """
     override = lattice_dir / "templates" / f"{review_type}.md"
     if override.exists():
-        return override.read_text()
+        return override.read_text(encoding="utf-8")
 
     if review_type == "code-review":
         from lattice.templates.code_review_prompt import CODE_REVIEW_TEMPLATE

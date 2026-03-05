@@ -143,6 +143,30 @@ class TestInitFlags:
         assert config["plan_review_mode"] == "inline"
         assert config["plan_approval"] == "auto"
 
+    def test_init_combined_review_flags(self, cli_runner, tmp_path):
+        from lattice.cli.main import cli
+
+        result = cli_runner.invoke(
+            cli,
+            [
+                "init",
+                "--path", str(tmp_path),
+                "--actor",
+                "human:test",
+                "--project-code",
+                "TST",
+                "--review-mode",
+                "triple",
+                "--plan-approval",
+                "human",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        config = json.loads((tmp_path / ".lattice" / "config.json").read_text())
+        assert config["review_mode"] == "triple"
+        assert config["plan_approval"] == "human"
+        assert config["plan_review_mode"] == "inline"  # default preserved
+
     def test_init_scaffolds_templates_dir(self, cli_runner, tmp_path):
         from lattice.cli.main import cli
 
