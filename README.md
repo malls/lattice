@@ -73,8 +73,8 @@ the dashboard reads and writes the same `.lattice/` directory your agents use. a
     <td><img src="docs/images/dashboard-neon.png" alt="Lattice dashboard — neon theme" width="480"></td>
   </tr>
   <tr>
-    <td align="center"><em>task detail panel — event timeline, comments, inline editing</em></td>
-    <td align="center"><em>kanban overview — multiple themes ship built-in</em></td>
+    <td align="center"><em>task detail panelg</em></td>
+    <td align="center"><em>kanban overview</em></td>
   </tr>
 </table>
 
