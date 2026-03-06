@@ -2,8 +2,6 @@
 
 <p align="center"><b><i>Linear for agent/human hyper-engineers.</i></b></p>
 
-[demo-timelapse.webm](https://github.com/user-attachments/assets/e2295b56-5807-4255-a987-f09bfbac44ad)
-
 ---
 
 listen.
@@ -17,6 +15,10 @@ the problem is. coordination.
 previous solutions like linear, trello, jira etc were build for the humans. lattice is built for human/agent [centaurs](https://arxiv.org/pdf/2304.11172v1).
 
 **first-class integrations:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex CLI](https://github.com/openai/codex), [OpenClaw](https://github.com/openclaw/openclaw), and any agent that follows the [SKILL.md convention](https://docs.anthropic.com/en/docs/claude-code/skills) or can run shell commands. if your agent can read files and execute commands, it can use Lattice.
+
+---
+
+[demo-timelapse.webm](https://github.com/user-attachments/assets/e2295b56-5807-4255-a987-f09bfbac44ad)
 
 ---
 
