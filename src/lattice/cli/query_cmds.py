@@ -1195,6 +1195,13 @@ def _print_human_show(
             )
             click.echo(f"  {role}: {source_summary}")
 
+    linked_files = snapshot.get("linked_files", [])
+    if linked_files:
+        click.echo("")
+        click.echo("Linked files:")
+        for lf in linked_files:
+            click.echo(f"  {lf}")
+
     branch_links = snapshot.get("branch_links", [])
     has_branch_section = branch_links or auto_detected_branches
     if has_branch_section:

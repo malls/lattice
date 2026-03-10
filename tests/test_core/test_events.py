@@ -42,6 +42,8 @@ class TestBuiltinEventTypes:
             "git_event",
             "branch_linked",
             "branch_unlinked",
+            "file_linked",
+            "file_unlinked",
             "resource_created",
             "resource_acquired",
             "resource_released",
@@ -58,7 +60,7 @@ class TestBuiltinEventTypes:
         assert isinstance(BUILTIN_EVENT_TYPES, frozenset)
 
     def test_count(self) -> None:
-        assert len(BUILTIN_EVENT_TYPES) == 24
+        assert len(BUILTIN_EVENT_TYPES) == 26
 
 
 # ---------------------------------------------------------------------------

@@ -24,6 +24,7 @@ PROTECTED_FIELDS: frozenset[str] = frozenset(
         "relationships_out",
         "evidence_refs",
         "branch_links",
+        "linked_files",
         "comment_count",
         "reopened_count",
         "custom_fields",
@@ -131,6 +132,7 @@ def compact_snapshot(snapshot: dict) -> dict:
         "relationships_out_count": len(snapshot.get("relationships_out", [])),
         "evidence_ref_count": len(snapshot.get("evidence_refs", [])),
         "branch_link_count": len(snapshot.get("branch_links", [])),
+        "linked_file_count": len(snapshot.get("linked_files", [])),
     }
     short_id = snapshot.get("short_id")
     if short_id is not None:
@@ -166,6 +168,7 @@ def _init_snapshot(event: dict) -> dict:
         "relationships_out": [],
         "evidence_refs": [],
         "branch_links": [],
+        "linked_files": [],
         "comment_count": 0,
         "reopened_count": 0,
         "custom_fields": data.get("custom_fields") or {},
@@ -320,6 +323,23 @@ def _mut_branch_unlinked(snap: dict, event: dict) -> None:
         if not (bl["branch"] == rm_branch and bl.get("repo") == rm_repo)
     ]
     snap["branch_links"] = links
+
+
+@_register_mutation("file_linked")
+def _mut_file_linked(snap: dict, event: dict) -> None:
+    data = event["data"]
+    paths = data.get("paths", [])
+    linked = snap.setdefault("linked_files", [])
+    for p in paths:
+        if p not in linked:
+            linked.append(p)
+
+
+@_register_mutation("file_unlinked")
+def _mut_file_unlinked(snap: dict, event: dict) -> None:
+    data = event["data"]
+    paths = data.get("paths", [])
+    snap["linked_files"] = [f for f in snap.get("linked_files", []) if f not in paths]
 
 
 @_register_mutation("comment_added")

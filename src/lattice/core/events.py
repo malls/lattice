@@ -31,6 +31,8 @@ BUILTIN_EVENT_TYPES: frozenset[str] = frozenset(
         "git_event",
         "branch_linked",
         "branch_unlinked",
+        "file_linked",
+        "file_unlinked",
         "resource_created",
         "resource_acquired",
         "resource_released",
