@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -24,25 +25,42 @@ from lattice.cli.main import cli
 from lattice.core.events import create_event
 from lattice.core.stats import load_all_snapshots
 from lattice.core.tasks import apply_event_to_snapshot
+from lattice.storage.readers import read_task_events
 
 
 def _resolve_to_relative(lattice_dir: Path, filepath: str) -> str:
     """Resolve a filepath to a project-relative path.
 
     The project root is the parent of the .lattice/ directory.
-    Rejects absolute paths that fall outside the project root.
+
+    Raises ``ValueError`` if the path escapes the project root (absolute
+    path outside the tree, or relative path with ``../`` traversal).
     """
     project_root = lattice_dir.parent
+
     path = Path(filepath)
 
     if path.is_absolute():
         try:
-            return str(path.resolve().relative_to(project_root.resolve()))
+            rel = str(path.resolve().relative_to(project_root.resolve()))
         except ValueError:
-            return filepath  # Outside project — store as-is
+            raise ValueError(
+                f"Path '{filepath}' is outside the project root."
+            ) from None
     else:
-        # Already relative — normalize
-        return str(Path(filepath))
+        # Collapse ../  segments and check for traversal
+        normalized = os.path.normpath(filepath)
+        if normalized.startswith(".."):
+            raise ValueError(
+                f"Path '{filepath}' escapes the project root."
+            )
+        rel = normalized
+
+    # Strip leading ./ if present
+    if rel.startswith("./") or rel.startswith(".\\"):
+        rel = rel[2:]
+
+    return rel
 
 
 def _validate_file_paths(paths: list[str], is_json: bool) -> None:
@@ -98,7 +116,10 @@ def file_link(
     _validate_file_paths(paths_list, is_json)
 
     # Resolve to project-relative paths
-    relative_paths = [_resolve_to_relative(lattice_dir, p) for p in paths_list]
+    try:
+        relative_paths = [_resolve_to_relative(lattice_dir, p) for p in paths_list]
+    except ValueError as exc:
+        output_error(str(exc), "VALIDATION_ERROR", is_json)
 
     # Read snapshot and check for duplicates
     snapshot = read_snapshot_or_exit(lattice_dir, task_id, is_json)
@@ -174,7 +195,10 @@ def file_unlink(
     # Resolve to project-relative paths
     paths_list = list(filepaths)
     _validate_file_paths(paths_list, is_json)
-    relative_paths = [_resolve_to_relative(lattice_dir, p) for p in paths_list]
+    try:
+        relative_paths = [_resolve_to_relative(lattice_dir, p) for p in paths_list]
+    except ValueError as exc:
+        output_error(str(exc), "VALIDATION_ERROR", is_json)
 
     # Read snapshot and check that paths exist
     snapshot = read_snapshot_or_exit(lattice_dir, task_id, is_json)
@@ -221,6 +245,20 @@ def file_unlink(
 # ---------------------------------------------------------------------------
 
 
+def _get_decision_comments(
+    lattice_dir: Path, task_id: str, *, is_archived: bool = False,
+) -> list[str]:
+    """Return body texts of comments with role 'decision' for a task."""
+    events = read_task_events(lattice_dir, task_id, is_archived=is_archived)
+    bodies: list[str] = []
+    for ev in events:
+        if ev.get("type") == "comment_added" and ev.get("data", {}).get("role") == "decision":
+            body = ev.get("data", {}).get("body", "").strip()
+            if body:
+                bodies.append(body)
+    return bodies
+
+
 def _parse_decisions_md(lattice_dir: Path, filepath: str) -> list[dict]:
     """Search for matching entries in Decisions.md.
 
@@ -253,17 +291,21 @@ def _parse_decisions_md(lattice_dir: Path, filepath: str) -> list[dict]:
     if current_entry is not None:
         entries.append(current_entry)
 
-    # Filter entries that reference our filepath
+    # Filter entries that reference our filepath (exact match)
+    files_line_re = re.compile(r"(?i)^-?\s*Files?:\s*(.*)$", re.MULTILINE)
     matches: list[dict] = []
     for entry in entries:
         body = "\n".join(entry["lines"])
-        # Check for Files: line containing the filepath
-        if re.search(rf"(?i)^-?\s*Files?:\s*.*{re.escape(filepath)}", body, re.MULTILINE):
-            matches.append({
-                "source": "Decisions.md",
-                "heading": entry["heading"],
-                "body": body.strip(),
-            })
+        # Parse Files: lines and compare each path exactly
+        for m in files_line_re.finditer(body):
+            paths = [p.strip() for p in m.group(1).split(",")]
+            if filepath in paths:
+                matches.append({
+                    "source": "Decisions.md",
+                    "heading": entry["heading"],
+                    "body": body.strip(),
+                })
+                break
 
     return matches
 
@@ -287,24 +329,37 @@ def explain_cmd(
     lattice_dir = require_root(is_json)
 
     # Resolve to project-relative path
-    rel_path = _resolve_to_relative(lattice_dir, filepath)
+    try:
+        rel_path = _resolve_to_relative(lattice_dir, filepath)
+    except ValueError as exc:
+        output_error(str(exc), "VALIDATION_ERROR", is_json)
 
     # Scan all task snapshots for linked_files containing this path
     active, archived = load_all_snapshots(lattice_dir)
+    archived_ids = {s.get("id") for s in archived}
     all_snapshots = active + archived
 
     matching_tasks: list[dict] = []
     for snap in all_snapshots:
         linked = snap.get("linked_files", [])
         if rel_path in linked:
+            task_id = snap.get("id")
+            is_archived = task_id in archived_ids
             entry: dict = {
-                "task_id": snap.get("id"),
+                "task_id": task_id,
                 "short_id": snap.get("short_id"),
                 "title": snap.get("title"),
                 "status": snap.get("status"),
                 "description": snap.get("description"),
                 "created_at": snap.get("created_at"),
             }
+
+            # Collect decision-role comments from event log
+            decision_comments = _get_decision_comments(
+                lattice_dir, task_id, is_archived=is_archived,
+            )
+            if decision_comments:
+                entry["decision_comments"] = decision_comments
 
             # Include decision-role comments if verbose or JSON
             if verbose or is_json:
@@ -316,7 +371,6 @@ def explain_cmd(
                 entry["decision_evidence"] = decision_refs
 
                 # Check for plan file
-                task_id = snap.get("id")
                 plan_path = lattice_dir / "plans" / f"{task_id}.md"
                 if not plan_path.exists():
                     plan_path = lattice_dir / "archive" / "plans" / f"{task_id}.md"
@@ -367,6 +421,10 @@ def explain_cmd(
                 desc_lines = desc.strip().splitlines()[:3]
                 for line in desc_lines:
                     click.echo(f"    {line}")
+
+            # Show decision-role comments (always, not just verbose)
+            for comment_body in task.get("decision_comments", []):
+                click.echo(f"    Decision: {comment_body}")
 
             if verbose:
                 plan = task.get("plan")
