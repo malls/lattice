@@ -372,6 +372,9 @@ and then. let go. the agents will be here when you return. the event log will ho
 | Link tasks | `lattice link SRC TYPE TGT --actor A` |
 | Attach file | `lattice attach ID path --actor A` |
 | Archive | `lattice archive ID --actor A` |
+| Link file to task | `lattice file-link ID PATH... --actor A [--reason "..."]` |
+| Unlink file | `lattice file-unlink ID PATH --actor A` |
+| Explain a file | `lattice explain PATH` |
 | Health check | `lattice doctor [--fix]` |
 | Rebuild | `lattice rebuild --all` |
 | Dashboard | `lattice dashboard` |
@@ -381,6 +384,28 @@ and then. let go. the agents will be here when you return. the event log will ho
 | Codex CLI setup | `lattice setup-codex [--force]` |
 | OpenClaw setup | `lattice setup-openclaw [--global] [--force]` |
 | Print instructions | `lattice setup-prompt [--claude-md]` |
+
+---
+
+## decision provenance. why was this file built this way?
+
+agents make decisions. code embodies those decisions. but six months later. nobody remembers why `src/auth/jwt.ts` uses stateless tokens instead of sessions. the decision is somewhere in a task comment. or a plan file. or your memory. which is unreliable.
+
+`lattice file-link` bridges the gap. when an agent makes a meaningful architectural choice. it records which files embody that choice:
+
+```bash
+lattice file-link LAT-42 src/auth/jwt.ts --reason "JWT validation logic" --actor agent:claude
+```
+
+later. anyone can ask:
+
+```bash
+lattice explain src/auth/jwt.ts
+```
+
+and get the task, the decision, the reasoning. without digging. `explain` also supports directories (`src/auth/`) and globs (`src/auth/*.ts`). and it searches `Decisions.md` for matching `- Files:` entries.
+
+this is optional. lightweight. and only useful when used with discipline: link the files that embody **decisions**, not every file touched.
 
 ---
 

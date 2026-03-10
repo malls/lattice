@@ -27,7 +27,8 @@ Primary implementation lives in `src/lattice/core/events.py`.
 
 - Task lifecycle: `task_created`, `task_archived`, `task_unarchived`
 - Task mutation: `status_changed`, `assignment_changed`, `field_updated`,
-  comments/reactions, relationships, artifacts, branch links
+  comments/reactions, relationships, artifacts, branch links, file links
+  (`file_linked`, `file_unlinked`)
 - Resource mutation: `resource_created`, `resource_acquired`,
   `resource_released`, `resource_heartbeat`, `resource_expired`, `resource_updated`
 

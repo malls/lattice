@@ -24,9 +24,9 @@ Key properties:
 
 ---
 
-## MCP Tools (15 total)
+## MCP Tools (17 total)
 
-### Write Operations (11 tools)
+### Write Operations (13 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -40,6 +40,8 @@ Key properties:
 | `lattice_attach` | Attach a file or URL to a task as an artifact. Supports file, reference, conversation, prompt, and log artifact types with optional title and summary. |
 | `lattice_archive` | Archive a completed task (moves snapshot, events, and notes to archive directory). |
 | `lattice_unarchive` | Restore an archived task to active status. |
+| `lattice_file_link` | Link file(s) to a task to record decision provenance. Paths are normalized to project-relative form. Optional `reason` annotation explains why the file is linked. |
+| `lattice_file_unlink` | Remove file link(s) from a task. |
 | `lattice_event` | Record a custom event on a task. Event type must start with `x_` (extension namespace). Accepts arbitrary data payloads. |
 
 ### Read Operations (4 tools)
@@ -53,7 +55,7 @@ Key properties:
 
 ---
 
-## MCP Resources (6 total)
+## MCP Resources (7 total)
 
 | URI | Description |
 |-----|-------------|
@@ -63,6 +65,7 @@ Key properties:
 | `lattice://tasks/assigned/{actor}` | Tasks filtered by assignee (e.g., `agent:claude`). |
 | `lattice://config` | The project `config.json` contents (workflow definition, statuses, transitions). |
 | `lattice://notes/{task_id}` | The task's markdown notes file contents. Checks archive if not found. |
+| `lattice://explain/{filepath}` | Reverse lookup: decisions that shaped a file. Scans task snapshots for matching `linked_files` and parses `Decisions.md`. Supports directory prefixes and globs. |
 
 ---
 
@@ -70,8 +73,8 @@ Key properties:
 
 - **Transport**: stdio (standard input/output)
 - **Protocol**: MCP (Model Context Protocol) via FastMCP
-- **Tools**: 15 (11 write, 4 read)
-- **Resources**: 6 URI patterns
+- **Tools**: 17 (13 write, 4 read)
+- **Resources**: 7 URI patterns
 - **ID resolution**: All tools accept both ULIDs (`task_01HQ...`) and human-friendly short IDs (`LAT-42`)
 - **Actor attribution**: Required on all write operations (`prefix:identifier` format)
 - **Idempotent writes**: Caller-supplied IDs prevent duplicate task creation on retry
@@ -170,7 +173,7 @@ Any MCP client that supports stdio transport can connect:
 
 https://github.com/Stage-11-Agentics/lattice
 
-Gives AI agents persistent shared state for coordinating work across sessions. 15 MCP tools for full task lifecycle management (create, update, assign, comment, link, attach, archive). 6 resource URIs for reading task state. Event-sourced with immutable audit trail and actor attribution. Zero infrastructure -- no database, no server, just files.
+Gives AI agents persistent shared state for coordinating work across sessions. 17 MCP tools for full task lifecycle management (create, update, assign, comment, link, attach, archive). 7 resource URIs for reading task state. Event-sourced with immutable audit trail and actor attribution. Zero infrastructure -- no database, no server, just files.
 
 Install: `pip install lattice-tracker[mcp]`
 Run: `lattice-mcp`
@@ -188,7 +191,7 @@ Categories: Project Management, Developer Tools, AI Agent Coordination
 |-------|-------|
 | Name | `@Stage-11-Agentics/lattice` |
 | Display name | Lattice |
-| Description | File-based, agent-native task tracker with event-sourced core. 15 MCP tools for task lifecycle management, relationships, artifacts, and workflow automation. Zero infrastructure -- just files. |
+| Description | File-based, agent-native task tracker with event-sourced core. 17 MCP tools for task lifecycle management, relationships, artifacts, and workflow automation. Zero infrastructure -- just files. |
 | Repository | https://github.com/Stage-11-Agentics/lattice |
 | Transport | stdio |
 | Install command | `pip install lattice-tracker[mcp]` |
@@ -204,7 +207,7 @@ Categories: Project Management, Developer Tools, AI Agent Coordination
 |-------|-------|
 | Name | Lattice |
 | Repository | https://github.com/Stage-11-Agentics/lattice |
-| Description | Agent-native task tracker with event-sourced core. Exposes 15 MCP tools and 6 resources for full task lifecycle management -- create, update, assign, comment, link, attach, archive. File-based with zero infrastructure. |
+| Description | Agent-native task tracker with event-sourced core. Exposes 17 MCP tools and 7 resources for full task lifecycle management -- create, update, assign, comment, link, attach, archive. File-based with zero infrastructure. |
 | Category | Project Management / Developer Tools |
 | Language | Python |
 | Scope | Local |
@@ -220,7 +223,7 @@ Categories: Project Management, Developer Tools, AI Agent Coordination
 |-------|-------|
 | Name | Lattice |
 | Repository | https://github.com/Stage-11-Agentics/lattice |
-| Description | File-based, agent-native task tracker. 15 MCP tools for creating, updating, assigning, commenting, linking, and archiving tasks. Event-sourced with immutable audit trail and actor attribution. No database or server required. |
+| Description | File-based, agent-native task tracker. 17 MCP tools for creating, updating, assigning, commenting, linking, and archiving tasks. Event-sourced with immutable audit trail and actor attribution. No database or server required. |
 | Category | Project Management |
 
 ### awesome-mcp-servers (GitHub)
@@ -230,7 +233,7 @@ Categories: Project Management, Developer Tools, AI Agent Coordination
 **Draft entry (for the "Project Management" or "Developer Tools" category):**
 
 ```markdown
-- [Lattice](https://github.com/Stage-11-Agentics/lattice) 🐍 🏠 🍎 🪟 🐧 - File-based, agent-native task tracker with event-sourced core. 15 tools for full task lifecycle management with actor attribution, relationship graphs, and configurable workflows.
+- [Lattice](https://github.com/Stage-11-Agentics/lattice) 🐍 🏠 🍎 🪟 🐧 - File-based, agent-native task tracker with event-sourced core. 17 tools for full task lifecycle management with actor attribution, relationship graphs, and configurable workflows.
 ```
 
 Legend: 🐍 = Python, 🏠 = Local, 🍎 = macOS, 🪟 = Windows, 🐧 = Linux

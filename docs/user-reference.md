@@ -72,7 +72,7 @@ Multi-lock operations (e.g., linking two tasks) acquire locks in deterministic (
 
 ### Event types
 
-Built-in: `task_created`, `status_changed`, `assigned`, `comment_added`, `field_updated`, `relationship_added`, `relationship_removed`, `artifact_attached`, `task_archived`, `task_unarchived`.
+Built-in: `task_created`, `status_changed`, `assigned`, `comment_added`, `field_updated`, `relationship_added`, `relationship_removed`, `artifact_attached`, `file_linked`, `file_unlinked`, `task_archived`, `task_unarchived`.
 
 Custom: any `x_`-prefixed type via `lattice event`. Useful for domain-specific events like deployments, test runs, or releases.
 
@@ -110,6 +110,58 @@ CLI flags: `--triggered-by`, `--on-behalf-of`, `--reason`. All write commands su
 ```
 
 Plans and notes are non-authoritative supplementary files — edited directly by humans or agents, not derived from events.
+
+---
+
+## File-decision links
+
+Tasks can be linked to files they shaped via `lattice file-link`. This records *why* a file was built a certain way by connecting it to the task whose decisions influenced it.
+
+### Linking
+
+```bash
+lattice file-link LAT-42 src/auth/jwt.ts --reason "JWT validation logic" --actor agent:claude
+lattice file-link LAT-42 src/auth/jwt.ts src/middleware/auth.ts --actor agent:claude
+```
+
+Paths are normalized to project-relative form (strip `./`, resolve `..`, reject paths escaping the project root). The optional `--reason` annotates *why* this file is linked — displayed by `lattice explain` without requiring the reader to open the full task.
+
+Linked files are stored in the task snapshot as objects:
+
+```json
+{
+  "linked_files": [
+    {"path": "src/auth/jwt.ts", "reason": "JWT validation logic"},
+    {"path": "src/middleware/auth.ts", "reason": null}
+  ]
+}
+```
+
+### Unlinking
+
+```bash
+lattice file-unlink LAT-42 src/auth/jwt.ts --actor agent:claude
+```
+
+### Explaining
+
+Reverse lookup — given a file, show what decisions shaped it:
+
+```bash
+lattice explain src/auth/jwt.ts              # exact file
+lattice explain src/auth/                    # all files under directory
+lattice explain "src/auth/*.ts"              # glob match
+```
+
+`explain` scans all task snapshots for matching `linked_files` entries and also parses `Decisions.md` for `- Files:` lines referencing the path. Output includes task title, status, description excerpt, reason annotation, and any decision-role comments.
+
+Output modes: human-readable (default), `--json` (structured), `--verbose` (full comments and plan content).
+
+### Conventions
+
+- Link files when a task involves a **meaningful architectural or design decision** — not for every file touched.
+- A task that refactors 50 files doesn't need 50 links. A task that decides "we use JWT instead of sessions" links the 2-3 files that embody that decision.
+- Known limitation: when a file is renamed, linked paths become stale. The old path still returns results; the new path won't until re-linked.
 
 ---
 
@@ -230,6 +282,9 @@ The CLI is Lattice's write interface — the primary way agents interact with th
 | `lattice unlink <src> <type> <tgt>` | Remove a relationship |
 | `lattice attach <id> <file-or-url>` | Attach an artifact (`--role` optionally tags it for completion policies) |
 | `lattice event <id> <x_type>` | Record a custom event |
+| `lattice file-link <id> <path>...` | Link file(s) to a task (`--reason` for annotation) |
+| `lattice file-unlink <id> <path>...` | Unlink file(s) from a task |
+| `lattice explain <path>` | Show decisions behind a file (supports directory/glob) |
 | `lattice archive <id>` | Archive a completed task |
 | `lattice unarchive <id>` | Restore an archived task |
 | `lattice dashboard` | Launch the web dashboard |
@@ -255,6 +310,7 @@ The CLI is Lattice's write interface — the primary way agents interact with th
 - `--claim` — atomically assign and start a task (next)
 - `--id` — supply your own ID for idempotent retries (create/event)
 - `--role` — assign a semantic role to comments/artifacts (comment/attach)
+- `--reason` — annotate why a file is linked to a task (file-link)
 
 Validation errors always list valid options. The CLI teaches its own vocabulary.
 

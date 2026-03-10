@@ -217,6 +217,18 @@ When in doubt, credit the human.
 
 Link feature branches to tasks: `lattice branch-link <task> <branch-name> --actor agent:<your-id>`. Auto-detection works when the branch contains the short code (e.g., `feat/LAT-42-login`), but explicit linking is preferred.
 
+### File-Decision Links
+
+When a task involves a meaningful architectural or design decision about specific files, link them:
+
+```
+lattice file-link <task> <filepath> [<filepath>...] --actor agent:<your-id> [--reason "why this file matters"]
+```
+
+This records decision provenance — later, `lattice explain <filepath>` shows what decisions shaped a file. Use `--reason` to annotate why the file is linked so the explanation is self-contained. Link files that embody **decisions**, not every file touched. A task that refactors 50 files doesn't need 50 links.
+
+`lattice explain` also supports directory queries (`src/auth/`) and globs (`src/auth/*.ts`).
+
 ### Leave Breadcrumbs
 
 You are not the last mind that will touch this work. Use `lattice comment` for what you tried, chose, and left undone. Use `plans/<task_id>.md` for structured plans and `notes/<task_id>.md` for working notes and context dumps. The record you leave is the only bridge to the next agent's context.
@@ -245,6 +257,9 @@ lattice assign <task> <actor> --actor agent:<id>
 lattice comment <task> "<text>" --actor agent:<id>
 lattice link <task> <type> <target> --actor agent:<id>
 lattice branch-link <task> <branch> --actor agent:<id>
+lattice file-link <task> <path>... --actor agent:<id> [--reason "why"]
+lattice file-unlink <task> <path> --actor agent:<id>
+lattice explain <path>                           # also supports directory/ and globs
 lattice next [--actor agent:<id>] [--claim]
 lattice show <task>
 lattice list

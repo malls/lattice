@@ -379,6 +379,9 @@ lattice assign <task> <actor> --actor agent:<id>
 lattice comment <task> "<text>" --actor agent:<id>
 lattice link <task> <type> <target> --actor agent:<id>
 lattice branch-link <task> <branch> --actor agent:<id>
+lattice file-link <task> <path>... --actor agent:<id> [--reason "why"]
+lattice file-unlink <task> <path> --actor agent:<id>
+lattice explain <path>                           # also supports directory/ and globs
 lattice next [--actor agent:<id>] [--claim]
 lattice show <task>
 lattice list
