@@ -91,6 +91,11 @@ class TestDefaultConfig:
         wip = config["workflow"]["wip_limits"]
         assert wip == {"in_progress": 10, "review": 5}
 
+    def test_has_completion_policies(self) -> None:
+        config = default_config()
+        policies = config["workflow"]["completion_policies"]
+        assert policies == {"done": {"require_roles": ["review"]}}
+
     def test_has_descriptions(self) -> None:
         config = default_config()
         assert "descriptions" in config["workflow"]
@@ -431,10 +436,29 @@ def _snap_with_evidence(evidence_refs: list, assigned_to: str | None = None) -> 
 class TestValidateCompletionPolicy:
     """validate_completion_policy() checks evidence gating rules."""
 
-    def test_no_policy_always_passes(self) -> None:
+    def test_default_done_policy_requires_review(self) -> None:
+        """Default config ships with done requiring review role."""
         config = default_config()
         snap = _snap_with_evidence([])
         ok, failures = validate_completion_policy(config, snap, "done")
+        assert ok is False
+        assert any("review" in f for f in failures)
+
+    def test_default_done_policy_passes_with_review(self) -> None:
+        """Default done policy is satisfied when review evidence exists."""
+        config = default_config()
+        snap = _snap_with_evidence(
+            [{"id": "art_A", "role": "review", "source_type": "artifact"}]
+        )
+        ok, failures = validate_completion_policy(config, snap, "done")
+        assert ok is True
+        assert failures == []
+
+    def test_no_policy_always_passes(self) -> None:
+        """Status without a completion policy passes unconditionally."""
+        config = default_config()
+        snap = _snap_with_evidence([])
+        ok, failures = validate_completion_policy(config, snap, "review")
         assert ok is True
         assert failures == []
 
@@ -581,6 +605,7 @@ class TestGetConfiguredRoles:
         """Config with neither workflow.roles nor completion policies → empty set."""
         config = default_config()
         config["workflow"].pop("roles", None)
+        config["workflow"].pop("completion_policies", None)
         assert get_configured_roles(config) == set()
 
     def test_explicit_roles_without_policies(self) -> None:

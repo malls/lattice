@@ -89,6 +89,7 @@ class TestMCPCompletionPolicy:
 
     def test_no_policy_no_gating(self, lattice_env: Path) -> None:
         """Without completion_policies, transitions work normally."""
+        _config_with_policy(lattice_env, {})
         task_id = _create_task_at_review(lattice_env)
 
         snapshot = lattice_status(task_id=task_id, new_status="done", actor=_ACTOR)

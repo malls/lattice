@@ -458,6 +458,92 @@ def update(
 
 
 # ---------------------------------------------------------------------------
+# Next-step hints after status transitions (LAT-197)
+# ---------------------------------------------------------------------------
+
+
+def compute_next_steps(
+    new_status: str,
+    config: dict,
+    task_id: str,
+    lattice_dir: object,  # Path
+    *,
+    display_id: str | None = None,
+) -> tuple[str | None, dict | None]:
+    """Return (human_hint, structured_dict) for the given status transition.
+
+    Both may be ``None`` when no hint applies.  *display_id* is the short ID
+    (e.g. ``LAT-42``) used in human-readable hints; falls back to *task_id*.
+    """
+    from pathlib import Path
+
+    lattice_dir = Path(lattice_dir)
+    label = display_id or task_id
+
+    if new_status == "in_planning":
+        hint = f"Next: write the plan in plans/{task_id}.md, then move to planned."
+        return hint, {"action": "write_plan", "plan_path": f"plans/{task_id}.md", "then": "planned"}
+
+    if new_status == "planned":
+        plan_review_mode = config.get("plan_review_mode", "inline")
+        if plan_review_mode != "inline":
+            hint = (
+                f"Next: run 'lattice plan-review {label}' "
+                f"(plan_review_mode: {plan_review_mode}) before moving to in_progress."
+            )
+            return hint, {
+                "action": "plan_review",
+                "command": f"lattice plan-review {label}",
+                "plan_review_mode": plan_review_mode,
+                "then": "in_progress",
+            }
+        return None, None
+
+    if new_status == "in_progress":
+        hint = "Next: implement the plan, then move to review."
+        return hint, {"action": "implement", "then": "review"}
+
+    if new_status == "review":
+        review_mode = config.get("review_mode", "single")
+        hint = (
+            f"Next: run 'lattice code-review {label}' "
+            f"(review_mode: {review_mode}) before moving to done."
+        )
+        return hint, {
+            "action": "code_review",
+            "command": f"lattice code-review {label}",
+            "review_mode": review_mode,
+            "then": "done",
+        }
+
+    if new_status == "needs_human":
+        # Try to surface the latest comment as a reminder of what's needed.
+        try:
+            events = read_task_events(lattice_dir, task_id)
+            comments = materialize_comments(events)
+            # Find the latest non-deleted top-level comment.
+            latest = None
+            for c in reversed(comments):
+                if not c.get("deleted"):
+                    latest = c
+                    break
+            if latest:
+                body = latest.get("body", "")
+                truncated = (body[:200] + "...") if len(body) > 200 else body
+                hint = f"Waiting on human.  Latest comment: {truncated}"
+                return hint, {
+                    "action": "awaiting_human",
+                    "latest_comment": body,
+                }
+        except Exception:
+            pass
+        hint = "Waiting on human input."
+        return hint, {"action": "awaiting_human"}
+
+    return None, None
+
+
+# ---------------------------------------------------------------------------
 # lattice status
 # ---------------------------------------------------------------------------
 
@@ -680,10 +766,29 @@ def status_cmd(
         _append_plan_reset_section(lattice_dir, task_id, actor, event.get("ts"))
 
     display_id = updated_snapshot.get("short_id") or task_id
+
+    # Compute next-step hints (LAT-197)
+    hint, next_steps_data = compute_next_steps(
+        new_status,
+        config,
+        task_id,
+        lattice_dir,
+        display_id=display_id,
+    )
+
+    # Build JSON data with optional next_steps
+    json_data = dict(updated_snapshot)
+    if next_steps_data is not None:
+        json_data["next_steps"] = next_steps_data
+
     assign_msg = f"  (auto-assigned to {actor})" if auto_assigned else ""
+    human_msg = f"Status: {current_status} -> {new_status} ({display_id}){assign_msg}"
+    if hint and not quiet:
+        human_msg += f"\n  {hint}"
+
     output_result(
-        data=updated_snapshot,
-        human_message=f"Status: {current_status} -> {new_status} ({display_id}){assign_msg}",
+        data=json_data,
+        human_message=human_msg,
         quiet_value="ok",
         is_json=is_json,
         is_quiet=quiet,

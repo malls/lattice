@@ -1,4 +1,4 @@
-"""Tests for completion policy gating and review cycle limits in `lattice status`."""
+"""Tests for completion policy gating, review cycle limits, and next_steps hints in `lattice status`."""
 
 from __future__ import annotations
 
@@ -12,6 +12,14 @@ from tests.conftest import _add_policies_to_config
 
 
 _ACTOR = "human:test"
+
+
+def _set_config_field(lattice_root: Path, field: str, value: object) -> None:
+    """Set a top-level field in config.json."""
+    config_path = lattice_root / LATTICE_DIR / "config.json"
+    config = json.loads(config_path.read_text())
+    config[field] = value
+    config_path.write_text(json.dumps(config, sort_keys=True, indent=2) + "\n")
 
 
 def _set_review_cycle_limit(lattice_root: Path, limit: int) -> None:
@@ -161,6 +169,7 @@ class TestCompletionPolicyGating:
 
     def test_no_policy_no_gating(self, invoke, initialized_root, fill_plan) -> None:
         """Without completion_policies, transitions work normally."""
+        _add_policies_to_config(initialized_root, {})
         r = invoke("create", "Test task", "--actor", _ACTOR, "--json")
         task_id = json.loads(r.output)["data"]["id"]
         invoke("status", task_id, "in_planning", "--actor", _ACTOR)
@@ -427,6 +436,7 @@ class TestReviewCycleLimitGating:
     ) -> None:
         """review -> done still works (not a rework transition)."""
         task_id = self._create_and_advance_to_review(invoke, fill_plan)
+        invoke("comment", task_id, "LGTM", "--role", "review", "--actor", _ACTOR)
         r = invoke("status", task_id, "done", "--actor", _ACTOR, "--json")
         assert r.exit_code == 0
         assert json.loads(r.output)["ok"] is True
@@ -582,3 +592,150 @@ class TestBackwardStatusPlanReset:
         after = plan_path.read_text()
 
         assert after == before
+
+
+# ---------------------------------------------------------------------------
+# Next-step hints on status transitions (LAT-197)
+# ---------------------------------------------------------------------------
+
+
+class TestNextStepsHints:
+    """Status transitions produce next-step hints in human and JSON output."""
+
+    def test_in_planning_human_hint(self, invoke, initialized_root) -> None:
+        r = invoke("create", "Hint test", "--actor", _ACTOR, "--json")
+        task_id = json.loads(r.output)["data"]["id"]
+
+        r = invoke("status", task_id, "in_planning", "--actor", _ACTOR)
+        assert r.exit_code == 0
+        assert "Next: write the plan in plans/" in r.output
+        assert "then move to planned" in r.output
+
+    def test_in_planning_json_next_steps(self, invoke, initialized_root) -> None:
+        r = invoke("create", "Hint test json", "--actor", _ACTOR, "--json")
+        task_id = json.loads(r.output)["data"]["id"]
+
+        r = invoke("status", task_id, "in_planning", "--actor", _ACTOR, "--json")
+        assert r.exit_code == 0
+        data = json.loads(r.output)["data"]
+        assert "next_steps" in data
+        assert data["next_steps"]["action"] == "write_plan"
+        assert data["next_steps"]["then"] == "planned"
+        assert task_id in data["next_steps"]["plan_path"]
+
+    def test_review_human_hint(self, invoke, initialized_root, fill_plan) -> None:
+        r = invoke("create", "Review hint", "--actor", _ACTOR, "--json")
+        task_id = json.loads(r.output)["data"]["id"]
+        invoke("status", task_id, "in_planning", "--actor", _ACTOR)
+        fill_plan(task_id, "Review hint")
+        invoke("status", task_id, "planned", "--actor", _ACTOR)
+        invoke("status", task_id, "in_progress", "--actor", _ACTOR)
+
+        r = invoke("status", task_id, "review", "--actor", _ACTOR)
+        assert r.exit_code == 0
+        assert "lattice code-review" in r.output
+        assert "review_mode: single" in r.output
+
+    def test_review_json_next_steps(self, invoke, initialized_root, fill_plan) -> None:
+        r = invoke("create", "Review json hint", "--actor", _ACTOR, "--json")
+        task_id = json.loads(r.output)["data"]["id"]
+        invoke("status", task_id, "in_planning", "--actor", _ACTOR)
+        fill_plan(task_id, "Review json hint")
+        invoke("status", task_id, "planned", "--actor", _ACTOR)
+        invoke("status", task_id, "in_progress", "--actor", _ACTOR)
+
+        r = invoke("status", task_id, "review", "--actor", _ACTOR, "--json")
+        assert r.exit_code == 0
+        data = json.loads(r.output)["data"]
+        ns = data["next_steps"]
+        assert ns["action"] == "code_review"
+        assert ns["review_mode"] == "single"
+        assert "lattice code-review" in ns["command"]
+        assert ns["then"] == "done"
+
+    def test_in_progress_human_hint(self, invoke, initialized_root, fill_plan) -> None:
+        r = invoke("create", "Impl hint", "--actor", _ACTOR, "--json")
+        task_id = json.loads(r.output)["data"]["id"]
+        invoke("status", task_id, "in_planning", "--actor", _ACTOR)
+        fill_plan(task_id, "Impl hint")
+        invoke("status", task_id, "planned", "--actor", _ACTOR)
+
+        r = invoke("status", task_id, "in_progress", "--actor", _ACTOR)
+        assert r.exit_code == 0
+        assert "implement the plan" in r.output
+        assert "move to review" in r.output
+
+    def test_needs_human_echoes_latest_comment(self, invoke, initialized_root) -> None:
+        r = invoke("create", "Needs human hint", "--actor", _ACTOR, "--json")
+        task_id = json.loads(r.output)["data"]["id"]
+        invoke("status", task_id, "in_planning", "--actor", _ACTOR)
+        invoke("comment", task_id, "Need API design decision", "--actor", _ACTOR)
+
+        r = invoke("status", task_id, "needs_human", "--actor", _ACTOR)
+        assert r.exit_code == 0
+        assert "Need API design decision" in r.output
+
+    def test_needs_human_json_includes_comment(self, invoke, initialized_root) -> None:
+        r = invoke("create", "NH json", "--actor", _ACTOR, "--json")
+        task_id = json.loads(r.output)["data"]["id"]
+        invoke("status", task_id, "in_planning", "--actor", _ACTOR)
+        invoke("comment", task_id, "Blocked on credentials", "--actor", _ACTOR)
+
+        r = invoke("status", task_id, "needs_human", "--actor", _ACTOR, "--json")
+        assert r.exit_code == 0
+        data = json.loads(r.output)["data"]
+        ns = data["next_steps"]
+        assert ns["action"] == "awaiting_human"
+        assert ns["latest_comment"] == "Blocked on credentials"
+
+    def test_planned_no_hint_when_inline(self, invoke, initialized_root, fill_plan) -> None:
+        """When plan_review_mode is inline (default), planned produces no hint."""
+        r = invoke("create", "Planned inline", "--actor", _ACTOR, "--json")
+        task_id = json.loads(r.output)["data"]["id"]
+        invoke("status", task_id, "in_planning", "--actor", _ACTOR)
+        fill_plan(task_id, "Planned inline")
+
+        r = invoke("status", task_id, "planned", "--actor", _ACTOR, "--json")
+        assert r.exit_code == 0
+        data = json.loads(r.output)["data"]
+        assert "next_steps" not in data
+
+    def test_planned_hint_when_single_review(self, invoke, initialized_root, fill_plan) -> None:
+        """When plan_review_mode is single, planned produces a plan-review hint."""
+        _set_config_field(initialized_root, "plan_review_mode", "single")
+
+        r = invoke("create", "Planned single", "--actor", _ACTOR, "--json")
+        task_id = json.loads(r.output)["data"]["id"]
+        invoke("status", task_id, "in_planning", "--actor", _ACTOR)
+        fill_plan(task_id, "Planned single")
+
+        r = invoke("status", task_id, "planned", "--actor", _ACTOR)
+        assert r.exit_code == 0
+        assert "lattice plan-review" in r.output
+        assert "plan_review_mode: single" in r.output
+
+    def test_quiet_mode_suppresses_hint(self, invoke, initialized_root) -> None:
+        """Quiet mode should only output 'ok', no hints."""
+        r = invoke("create", "Quiet hint test", "--actor", _ACTOR, "--json")
+        task_id = json.loads(r.output)["data"]["id"]
+
+        r = invoke("status", task_id, "in_planning", "--actor", _ACTOR, "--quiet")
+        assert r.exit_code == 0
+        assert r.output.strip() == "ok"
+
+    def test_done_no_hint(self, invoke, initialized_root, fill_plan) -> None:
+        """Moving to done produces no next_steps."""
+        _add_policies_to_config(initialized_root, {})
+
+        r = invoke("create", "Done no hint", "--actor", _ACTOR, "--json")
+        task_id = json.loads(r.output)["data"]["id"]
+        invoke("status", task_id, "in_planning", "--actor", _ACTOR)
+        fill_plan(task_id, "Done no hint")
+        invoke("status", task_id, "planned", "--actor", _ACTOR)
+        invoke("status", task_id, "in_progress", "--actor", _ACTOR)
+        invoke("status", task_id, "review", "--actor", _ACTOR)
+
+        r = invoke("status", task_id, "done", "--actor", _ACTOR, "--json")
+        assert r.exit_code == 0
+        data = json.loads(r.output)["data"]
+        assert "next_steps" not in data

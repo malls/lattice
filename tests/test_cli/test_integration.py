@@ -101,6 +101,10 @@ class TestFullLifecycleWorkflow:
         r = invoke("status", task_id, "review", "--actor", "human:test")
         assert r.exit_code == 0
 
+        # 9b. Add review evidence (required by default completion policy)
+        r = invoke("comment", task_id, "LGTM", "--role", "review", "--actor", "human:test")
+        assert r.exit_code == 0
+
         # 10. Status: review -> done
         r = invoke("status", task_id, "done", "--actor", "human:test")
         assert r.exit_code == 0
@@ -126,6 +130,7 @@ class TestFullLifecycleWorkflow:
             "relationship_added",
             "artifact_attached",
             "status_changed",      # in_progress -> review
+            "comment_added",       # review evidence
             "status_changed",      # review -> done
             "task_archived",
         ]

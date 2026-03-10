@@ -199,6 +199,9 @@ def default_config(preset: str = "classic") -> LatticeConfig:
             "in_progress": 10,
             "review": 5,
         },
+        "completion_policies": {
+            "done": {"require_roles": ["review"]},
+        },
     }
 
     if display_names:
