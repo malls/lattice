@@ -63,7 +63,7 @@ lattice dashboard
 # Serving at http://127.0.0.1:8799/
 ```
 
-a local web UI for the human side of the loop. Kanban board, activity feed, stats, force-directed relationship graph. you create tasks, make decisions, review work, unblock your agents. if you never touch the terminal, you can still run a full Lattice workflow.
+a local web UI for the human side of the loop. Kanban board, activity feed, stats, force-directed relationship graph. you create tasks, make decisions, review work, unblock your agents.
 
 the dashboard reads and writes the same `.lattice/` directory your agents use. an agent commits a status change via CLI. your dashboard reflects it on refresh. one source of truth. many windows into it.
 
