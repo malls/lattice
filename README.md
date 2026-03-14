@@ -120,4 +120,4 @@ the experience is **identical** to users and agents alike. same CLI. same dashbo
 
 ---
 
-lattice is a [Stage 11 Agentics](https://stage11agentics.com) project
+lattice is a [Stage 11 Agentics](https://stage11.ai) project
