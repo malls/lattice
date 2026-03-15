@@ -79,6 +79,8 @@ Each lifecycle stage gets its own sub-agent with fresh context. This is the defa
 
 Each sub-agent should use a distinct actor ID (e.g., `agent:claude-opus-4-planner`, `agent:claude-opus-4-impl`, `agent:claude-opus-4-reviewer`) so the event log shows who did what.
 
+**Prompt guidance for sub-agents building streaming/realtime features:** When writing implementation prompts for features involving event streams, fswatch, or background process coordination (e.g., `lattice watch`, `lattice wait`), explicitly tell the sub-agent to skip integration tests that require concurrent processes. Test parsing and filtering logic with unit tests. Trust the I/O core from existing proven commands. Agents will otherwise thrash on launching background processes, sleeping, and debugging timing issues in a single-agent sandbox — a known failure mode that wastes significant context.
+
 ### The Planning Gate
 
 The plan file lives at `.lattice/plans/<task_id>.md` — scaffolded on creation, empty until you fill it.
