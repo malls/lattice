@@ -765,6 +765,12 @@ def status_cmd(
     if is_backward_transition:
         _append_plan_reset_section(lattice_dir, task_id, actor, event.get("ts"))
 
+    # cmux integration: update tab title / sidebar / flash when task is surface-bound
+    from lattice.cli.cmux_bridge import cmux_available, on_status_changed
+
+    if cmux_available():
+        on_status_changed(updated_snapshot, current_status, new_status)
+
     display_id = updated_snapshot.get("short_id") or task_id
 
     # Compute next-step hints (LAT-197)
