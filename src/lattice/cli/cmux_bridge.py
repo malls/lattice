@@ -134,9 +134,9 @@ def trigger_flash(surface: str) -> bool:
     if not cmux_available():
         return False
     workspace = get_workspace()
-    args = ["flash", "--surface", surface]
+    args = ["trigger-flash", "--surface", surface]
     if workspace:
-        args = ["flash", "--workspace", workspace, "--surface", surface]
+        args = ["trigger-flash", "--workspace", workspace, "--surface", surface]
     return _run_cmux(*args)
 
 
