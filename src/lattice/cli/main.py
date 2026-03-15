@@ -1440,6 +1440,9 @@ from lattice.cli import demo_cmd as _demo_cmd  # noqa: E402, F401
 from lattice.cli import session_cmds as _session_cmds  # noqa: E402, F401
 from lattice.cli import review_cmds as _review_cmds  # noqa: E402, F401
 from lattice.cli import file_cmds as _file_cmds  # noqa: E402, F401
+from lattice.cli import wait_cmd as _wait_cmd  # noqa: E402, F401
+from lattice.cli import watch_cmd as _watch_cmd  # noqa: E402, F401
+from lattice.cli import claim_cmd as _claim_cmd  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
 # Load CLI plugins (must be after all built-in commands are registered)

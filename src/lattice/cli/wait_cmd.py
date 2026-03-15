@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -18,7 +17,7 @@ from lattice.cli.helpers import (
 )
 from lattice.cli.main import cli
 from lattice.core.config import resolve_status_input
-from lattice.storage.readers import read_task_events
+from lattice.core.event_stream import _check_fswatch, stream_events
 
 
 def _check_tasks_status(
@@ -49,23 +48,6 @@ def _check_tasks_status(
             pending.append(task_id)
 
     return done, pending
-
-
-def _get_latest_event(lattice_dir: Path, task_id: str) -> dict | None:
-    """Read the most recent event for a task."""
-    events = read_task_events(lattice_dir, task_id)
-    return events[-1] if events else None
-
-
-def _validate_event_line(line: str) -> dict | None:
-    """Parse a JSONL line, returning None if malformed (guards against partial writes)."""
-    line = line.strip()
-    if not line:
-        return None
-    try:
-        return json.loads(line)
-    except json.JSONDecodeError:
-        return None
 
 
 @cli.command("wait")
@@ -115,7 +97,6 @@ def wait_cmd(
     """
     is_json = output_json
     lattice_dir = require_root(is_json)
-    events_dir = lattice_dir / "events"
 
     # Resolve display names (e.g., "shipped" → "done") to canonical slugs
     config = load_project_config(lattice_dir)
@@ -124,7 +105,7 @@ def wait_cmd(
     # Parse and resolve task IDs
     raw_ids = [t.strip() for t in task_ids_str.split(",") if t.strip()]
     if not raw_ids:
-        output_error("No task IDs provided.", is_json)
+        output_error("No task IDs provided.", "MISSING_ARGS", is_json)
         sys.exit(1)
 
     task_ids: list[str] = []
@@ -150,190 +131,47 @@ def wait_cmd(
             done_names = ", ".join(short_id_map.get(t, t) for t in done)
             click.echo(f"  Already {target_status}: {done_names}")
 
-    # Determine watch strategy
-    has_fswatch = _check_fswatch()
+    if not _check_fswatch() and not quiet and not is_json:
+        click.echo("  (fswatch not found, using poll fallback)")
 
     start_time = time.monotonic()
 
-    if has_fswatch:
-        _wait_with_fswatch(
-            lattice_dir,
-            events_dir,
-            task_ids,
-            target_status,
-            timeout,
-            short_id_map,
-            is_json,
-            quiet,
-            start_time,
-        )
-    else:
-        if not quiet and not is_json:
-            click.echo("  (fswatch not found, using poll fallback)")
-        _wait_with_poll(
-            lattice_dir,
-            task_ids,
-            target_status,
-            timeout,
-            poll_fallback,
-            short_id_map,
-            is_json,
-            quiet,
-            start_time,
-        )
-
-
-def _check_fswatch() -> bool:
-    """Check if fswatch is available."""
     try:
-        subprocess.run(
-            ["fswatch", "--version"],
-            capture_output=True,
-            timeout=5,
-        )
-        return True
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
-
-
-def _wait_with_fswatch(
-    lattice_dir: Path,
-    events_dir: Path,
-    task_ids: list[str],
-    target_status: str,
-    timeout: int,
-    short_id_map: dict[str, str],
-    is_json: bool,
-    quiet: bool,
-    start_time: float,
-) -> None:
-    """Watch for completions using fswatch (event-driven, near-instant)."""
-    # Build set of event filenames we care about
-    watched_files = {f"{tid}.jsonl" for tid in task_ids}
-
-    cmd = ["fswatch", "-0", "--event", "Updated", "--event", "Created", str(events_dir)]
-    if timeout > 0:
-        # fswatch doesn't have a native timeout, so we use subprocess timeout
-        pass
-
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-
-    try:
-        buffer = b""
-
-        while True:
-            # Check timeout
-            elapsed = time.monotonic() - start_time
-            if timeout > 0 and elapsed >= timeout:
-                _handle_timeout(
-                    lattice_dir, task_ids, target_status, short_id_map, is_json, quiet
-                )
-                return
-
-            # Read from fswatch (with a short internal timeout to check overall timeout)
-            read_timeout = min(5.0, (timeout - elapsed) if timeout > 0 else 5.0)
-            try:
-                import select
-
-                ready, _, _ = select.select([proc.stdout], [], [], read_timeout)
-                if not ready:
-                    continue
-
-                chunk = proc.stdout.read(4096)
-                if not chunk:
-                    break
-
-                buffer += chunk
-
-                # fswatch uses null-byte separators
-                while b"\0" in buffer:
-                    path_bytes, buffer = buffer.split(b"\0", 1)
-                    changed_file = Path(path_bytes.decode().strip()).name
-
-                    # Filter: only check if the changed file is one of our tasks
-                    if changed_file not in watched_files:
-                        continue
-
-                    # Read the event file and check the latest event
-                    task_id = changed_file.replace(".jsonl", "")
-                    latest = _get_latest_event(lattice_dir, task_id)
-                    if latest is None:
-                        continue
-
-                    # Validate the event is parseable (guards against partial writes)
-                    event_type = latest.get("type", "")
-                    new_status = latest.get("new_status", "")
-
-                    # Only do the full check if this event looks like a status change
-                    # to our target (optimization to avoid scanning all tasks on every event)
-                    if event_type == "status_changed" and new_status == target_status:
-                        done, pending = _check_tasks_status(
-                            lattice_dir, task_ids, target_status
-                        )
-                        if not quiet and not is_json:
-                            done_names = ", ".join(
-                                short_id_map.get(t, t) for t in done
-                            )
-                            click.echo(
-                                f"  Progress: {len(done)}/{len(task_ids)} "
-                                f"({done_names})"
-                            )
-                        if not pending:
-                            _emit_result(
-                                done,
-                                pending,
-                                target_status,
-                                short_id_map,
-                                is_json,
-                                quiet,
-                            )
-                            return
-
-            except (OSError, ValueError):
-                # select() can fail on some edge cases, fall through to retry
+        for event in stream_events(
+            lattice_dir,
+            task_filter=task_ids,
+            type_filter=["status_changed"],
+            poll_interval=poll_fallback,
+            timeout=timeout,
+        ):
+            # Only act on transitions to the target status
+            if event.get("data", {}).get("to") != target_status:
                 continue
 
-    finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+            done, pending = _check_tasks_status(lattice_dir, task_ids, target_status)
+            if not quiet and not is_json:
+                done_names = ", ".join(short_id_map.get(t, t) for t in done)
+                click.echo(
+                    f"  Progress: {len(done)}/{total} ({done_names})"
+                )
+            if not pending:
+                _emit_result(done, pending, target_status, short_id_map, is_json, quiet)
+                return
 
+    except KeyboardInterrupt:
+        pass
 
-def _wait_with_poll(
-    lattice_dir: Path,
-    task_ids: list[str],
-    target_status: str,
-    timeout: int,
-    interval: int,
-    short_id_map: dict[str, str],
-    is_json: bool,
-    quiet: bool,
-    start_time: float,
-) -> None:
-    """Fallback: poll task snapshots at a regular interval."""
-    while True:
-        elapsed = time.monotonic() - start_time
-        if timeout > 0 and elapsed >= timeout:
-            _handle_timeout(
-                lattice_dir, task_ids, target_status, short_id_map, is_json, quiet
-            )
-            return
-
+    # Stream ended (timeout reached or generator exhausted)
+    elapsed = time.monotonic() - start_time
+    if timeout > 0 and elapsed >= timeout:
+        _handle_timeout(lattice_dir, task_ids, target_status, short_id_map, is_json, quiet)
+    else:
+        # Generator ended without all tasks completing
         done, pending = _check_tasks_status(lattice_dir, task_ids, target_status)
         if not pending:
             _emit_result(done, pending, target_status, short_id_map, is_json, quiet)
-            return
-
-        if not quiet and not is_json:
-            click.echo(
-                f"  {len(done)}/{len(task_ids)} at '{target_status}', "
-                f"checking again in {interval}s..."
-            )
-
-        time.sleep(interval)
+        else:
+            _handle_timeout(lattice_dir, task_ids, target_status, short_id_map, is_json, quiet)
 
 
 def _emit_result(
