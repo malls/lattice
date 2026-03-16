@@ -22,6 +22,7 @@ Registered modules include:
 - `integrity_cmds.py`
 - `resource_cmds.py`
 - `session_cmds.py`
+- `file_cmds.py`
 - `stats_cmds.py`
 - `weather_cmds.py`
 - `dashboard_cmd.py`

@@ -1033,6 +1033,7 @@ class TestCompactSnapshot:
             "relationships_out_count",
             "evidence_ref_count",
             "branch_link_count",
+            "linked_file_count",
         }
         assert set(compact.keys()) == expected_keys
 

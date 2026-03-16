@@ -90,6 +90,25 @@ lattice link PROJ-3 subtask_of PROJ-1 --actor agent:openclaw
 
 Relationship types: `blocks`, `blocked_by`, `subtask_of`, `parent_of`, `depends_on`, `depended_on_by`, `related_to`
 
+### File-decision links
+
+Record which files embody a task's architectural decisions:
+
+```bash
+lattice file-link PROJ-1 src/auth/jwt.ts --reason "JWT validation logic" --actor agent:openclaw
+lattice file-unlink PROJ-1 src/auth/jwt.ts --actor agent:openclaw
+```
+
+Reverse lookup — show what decisions shaped a file:
+
+```bash
+lattice explain src/auth/jwt.ts              # exact file
+lattice explain src/auth/                    # directory prefix
+lattice explain "src/auth/*.ts"              # glob
+```
+
+Link files that embody **decisions**, not every file touched. Use `--reason` to annotate why.
+
 ### Archive completed work
 
 ```bash

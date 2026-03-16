@@ -24,6 +24,7 @@ PROTECTED_FIELDS: frozenset[str] = frozenset(
         "relationships_out",
         "evidence_refs",
         "branch_links",
+        "linked_files",
         "comment_count",
         "reopened_count",
         "custom_fields",
@@ -131,6 +132,7 @@ def compact_snapshot(snapshot: dict) -> dict:
         "relationships_out_count": len(snapshot.get("relationships_out", [])),
         "evidence_ref_count": len(snapshot.get("evidence_refs", [])),
         "branch_link_count": len(snapshot.get("branch_links", [])),
+        "linked_file_count": len(snapshot.get("linked_files", [])),
     }
     short_id = snapshot.get("short_id")
     if short_id is not None:
@@ -166,6 +168,7 @@ def _init_snapshot(event: dict) -> dict:
         "relationships_out": [],
         "evidence_refs": [],
         "branch_links": [],
+        "linked_files": [],
         "comment_count": 0,
         "reopened_count": 0,
         "custom_fields": data.get("custom_fields") or {},
@@ -322,6 +325,23 @@ def _mut_branch_unlinked(snap: dict, event: dict) -> None:
     snap["branch_links"] = links
 
 
+@_register_mutation("file_linked")
+def _mut_file_linked(snap: dict, event: dict) -> None:
+    data = event["data"]
+    paths = data.get("paths", [])
+    linked = snap.setdefault("linked_files", [])
+    for p in paths:
+        if p not in linked:
+            linked.append(p)
+
+
+@_register_mutation("file_unlinked")
+def _mut_file_unlinked(snap: dict, event: dict) -> None:
+    data = event["data"]
+    paths = data.get("paths", [])
+    snap["linked_files"] = [f for f in snap.get("linked_files", []) if f not in paths]
+
+
 @_register_mutation("comment_added")
 def _mut_comment_added(snap: dict, event: dict) -> None:
     snap["comment_count"] = snap.get("comment_count", 0) + 1
@@ -362,6 +382,23 @@ def _mut_comment_deleted(snap: dict, event: dict) -> None:
             for er in snap["evidence_refs"]
             if not (er.get("source_type") == "comment" and er.get("id") == comment_id)
         ]
+
+
+@_register_mutation("surface_bound")
+def _mut_surface_bound(snap: dict, event: dict) -> None:
+    data = event["data"]
+    snap["cmux_surface"] = data.get("surface")
+    workspace = data.get("workspace")
+    if workspace is not None:
+        snap["cmux_workspace"] = workspace
+    else:
+        snap.setdefault("cmux_workspace", None)
+
+
+@_register_mutation("surface_unbound")
+def _mut_surface_unbound(snap: dict, event: dict) -> None:
+    snap["cmux_surface"] = None
+    snap["cmux_workspace"] = None
 
 
 def get_artifact_roles(snapshot: dict) -> dict[str, str | None]:

@@ -70,7 +70,7 @@ Each lifecycle stage gets its own sub-agent with fresh context. This is the defa
 |-------|---------------|-------|----------|
 | **Plan** | Explore codebase, write plan, move to `planned` | Task description | Plan file |
 | **Implement** | Read plan, build it, test, commit, move to `review` | Plan file | Committed code |
-| **Review** | Read diff cold, review against acceptance criteria, record findings | Git diff + plan | Review comment (`--role review`), move to `done` |
+| **Review** | Read diff cold, review against acceptance criteria, record findings | Git diff + plan | Review artifact (`--role review`), move to `done` |
 
 **The parent orchestrator** (the main agent session) manages the lifecycle:
 1. Move the task to `in_planning` before spawning the planning sub-agent.
@@ -78,6 +78,8 @@ Each lifecycle stage gets its own sub-agent with fresh context. This is the defa
 3. After the implementer finishes, the review sub-agent runs independently.
 
 Each sub-agent should use a distinct actor ID (e.g., `agent:claude-opus-4-planner`, `agent:claude-opus-4-impl`, `agent:claude-opus-4-reviewer`) so the event log shows who did what.
+
+**Prompt guidance for sub-agents building streaming/realtime features:** When writing implementation prompts for features involving event streams, fswatch, or background process coordination (e.g., `lattice watch`, `lattice wait`), explicitly tell the sub-agent to skip integration tests that require concurrent processes. Test parsing and filtering logic with unit tests. Trust the I/O core from existing proven commands. Agents will otherwise thrash on launching background processes, sleeping, and debugging timing issues in a single-agent sandbox — a known failure mode that wastes significant context.
 
 ### The Planning Gate
 
@@ -91,20 +93,61 @@ This is the **planning sub-agent's** job. Spawn a sub-agent whose sole purpose i
 
 **The test:** If you moved to `planned` and the plan file is still empty scaffold, you didn't plan. Every task gets a plan — even trivial tasks get a one-line plan. The CLI enforces this: transitioning to `in_progress` is blocked when the plan is still scaffold.
 
+**Plan review (optional, config-gated):** After writing the plan, check the project's `plan_review_mode` setting:
+
+```
+lattice show <task> --json | python3 -c "import sys,json; ..."  # or:
+cat .lattice/config.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('plan_review_mode','inline'))"
+```
+
+| `plan_review_mode` value | What the planner does |
+|--------------------------|----------------------|
+| `inline` (default) | Review the plan yourself in-session before moving to `planned` |
+| `single` | Run `lattice plan-review <task>` — spawns one review agent |
+| `triple` | Run `lattice plan-review <task>` — spawns three agents (claude, codex, gemini) + merge |
+
+When `plan_approval` is `human`, the CLI automatically moves the task to `needs_human` after `lattice plan-review` completes. Wait for human approval before proceeding to `in_progress`.
+
 ### The Review Gate
 
 Moving to `review` is a commitment to actually review the work.
 
-This is the **review sub-agent's** job. Spawn a sub-agent with fresh context — it did NOT write the code and comes in cold. It should:
+This is the **review sub-agent's** job. Spawn a sub-agent with fresh context — it did NOT write the code and comes in cold.
+
+**Step 1: Check review_mode.** Before reviewing, check the project config:
+
+```
+cat .lattice/config.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('review_mode','single'))"
+```
+
+| `review_mode` value | What the reviewer does |
+|---------------------|----------------------|
+| `inline` | Review the diff yourself in-session. Run `lattice code-review <task> --mode inline` to acknowledge. |
+| `single` (default) | Run `lattice code-review <task>` — spawns one review agent, stores artifact |
+| `triple` | Run `lattice code-review <task>` — spawns three agents + merge, stores artifacts |
+
+**Step 2: Perform the review.** The review sub-agent should:
 1. Read the plan file to understand what was supposed to be built.
 2. Read the git diff to see what was actually built.
 3. Run tests and linting to verify nothing is broken.
 4. Compare the implementation against the plan's acceptance criteria.
-5. Record findings with `lattice comment --role review` — what was reviewed, what was found, and whether it meets acceptance criteria.
+5. Call `lattice code-review <task>` (or review inline if mode is `inline`).
 
 **When moving to `done`:** If the completion policy blocks you for a missing review artifact, do the review. Do not `--force` past it. `--force --reason` is for genuinely exceptional cases, not a convenience shortcut.
 
 **The test:** If the same agent that wrote the code also reviewed it without a fresh context boundary, the review gate is not doing its job. The whole point is independent verification.
+
+### Review Verdict Routing
+
+When the orchestrator reads a completed review (from the review artifact or inline review output), it follows a **three-way routing protocol**:
+
+1. **Fix** (primary path) — Address the finding. Route the task back and spawn a rework sub-agent, or fix inline if trivial. Record what was fixed in a follow-up comment.
+
+2. **Ignore with justification** — Low-severity findings, style preferences, or findings that would change the ticket's scope can be skipped. The orchestrator must note why in a comment: `lattice comment <task> "Skipping [finding]: [reason]" --actor agent:<id>`. Don't silently ignore — always record the decision.
+
+3. **Create new task** — Legitimate findings that are out of scope for the current ticket. Create a new Lattice task to track the work: `lattice create "<finding title>" --actor agent:<id>`. The insight is captured without blocking the current task.
+
+Every finding must be explicitly routed. No finding may be silently dropped.
 
 ### Review Rework Loop
 
@@ -137,6 +180,20 @@ Minor fix:    in_progress -> review -> (fix inline) -> done
 Max cycles:   3 review->rework transitions, then CLI blocks -> needs_human
 ```
 
+### Review Config Reference
+
+Three settings in `.lattice/config.json` control review behavior:
+
+| Setting | Values | Default | Meaning |
+|---------|--------|---------|---------|
+| `review_mode` | `inline`, `single`, `triple` | `single` | How code review is performed at the review gate |
+| `plan_review_mode` | `inline`, `single`, `triple` | `inline` | How plan review is performed after the plan is written |
+| `plan_approval` | `auto`, `human` | `auto` | After plan-review: `auto` proceeds, `human` moves to `needs_human` for approval |
+
+**`inline`** — review happens in the same agent session (no subprocess spawned).
+**`single`** — one review agent is spawned; result stored as a `review` or `plan-review` artifact.
+**`triple`** — three agents (claude, codex, gemini) run in parallel; individual results stored as `review-individual` artifacts; a merged result stored as `review` or `plan-review`.
+
 ### When You're Stuck
 
 Use `needs_human` when you need human decision, approval, or input **right now**. This is distinct from `blocked` (generic external dependency) — it creates a scannable queue. **`needs_human` means actionable NOW** — future checkpoints (quality gates, review gates, approval milestones) stay at `planned` or `backlog` until the preceding work is complete. The orchestrator flips them to `needs_human` at the moment they become actionable.
@@ -161,6 +218,18 @@ When in doubt, credit the human.
 ### Branch Linking
 
 Link feature branches to tasks: `lattice branch-link <task> <branch-name> --actor agent:<your-id>`. Auto-detection works when the branch contains the short code (e.g., `feat/LAT-42-login`), but explicit linking is preferred.
+
+### File-Decision Links
+
+When a task involves a meaningful architectural or design decision about specific files, link them:
+
+```
+lattice file-link <task> <filepath> [<filepath>...] --actor agent:<your-id> [--reason "why this file matters"]
+```
+
+This records decision provenance — later, `lattice explain <filepath>` shows what decisions shaped a file. Use `--reason` to annotate why the file is linked so the explanation is self-contained. Link files that embody **decisions**, not every file touched. A task that refactors 50 files doesn't need 50 links.
+
+`lattice explain` also supports directory queries (`src/auth/`) and globs (`src/auth/*.ts`).
 
 ### Leave Breadcrumbs
 
@@ -190,6 +259,9 @@ lattice assign <task> <actor> --actor agent:<id>
 lattice comment <task> "<text>" --actor agent:<id>
 lattice link <task> <type> <target> --actor agent:<id>
 lattice branch-link <task> <branch> --actor agent:<id>
+lattice file-link <task> <path>... --actor agent:<id> [--reason "why"]
+lattice file-unlink <task> <path> --actor agent:<id>
+lattice explain <path>                           # also supports directory/ and globs
 lattice next [--actor agent:<id>] [--claim]
 lattice show <task>
 lattice list

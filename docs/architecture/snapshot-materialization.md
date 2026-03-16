@@ -34,6 +34,8 @@ Representative handlers:
 - `comment_*` -> maintains `comment_count` and `evidence_refs` role entries
 - `artifact_attached` -> deduplicated `evidence_refs` entries
 - relationship/branch handlers -> append/remove structured records
+- `file_linked` -> appends to `linked_files` (objects with `path` and optional `reason`), deduplicates by path
+- `file_unlinked` -> removes matching paths from `linked_files`
 
 ## Evidence Model (Current)
 

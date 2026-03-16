@@ -95,6 +95,13 @@ lattice link PROJ-1 blocks PROJ-2 --actor agent:claude-cli
 # Next task
 lattice next --actor agent:claude-cli --claim --json
 
+# File-decision links
+lattice file-link PROJ-1 src/auth/jwt.ts --reason "JWT validation" --actor agent:claude-cli
+lattice file-unlink PROJ-1 src/auth/jwt.ts --actor agent:claude-cli
+lattice explain src/auth/jwt.ts              # what decisions shaped this file?
+lattice explain src/auth/                    # directory prefix
+lattice explain "src/auth/*.ts"              # glob
+
 # Health
 lattice weather    # Daily digest
 lattice stats      # Statistics

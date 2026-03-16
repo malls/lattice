@@ -145,6 +145,7 @@ class LatticeConfig(TypedDict, total=False):
     review_mode: Literal["inline", "single", "triple"]
     plan_review_mode: Literal["inline", "single", "triple"]
     plan_approval: Literal["auto", "human"]
+    review_timeout_seconds: int
 
 
 def default_config(preset: str = "classic") -> LatticeConfig:
@@ -198,6 +199,9 @@ def default_config(preset: str = "classic") -> LatticeConfig:
             "in_progress": 10,
             "review": 5,
         },
+        "completion_policies": {
+            "done": {"require_roles": ["review"]},
+        },
     }
 
     if display_names:
@@ -220,6 +224,7 @@ def default_config(preset: str = "classic") -> LatticeConfig:
         "review_mode": "single",
         "plan_review_mode": "inline",
         "plan_approval": "auto",
+        "review_timeout_seconds": 600,
     }
 
     return config
