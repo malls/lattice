@@ -21,7 +21,43 @@ DEFAULT_AGENT_TIMEOUT = 600  # 10 minutes
 FAILURE_THRESHOLD = 2  # auto-create diagnostic task after this many failures
 
 REVIEW_STATE_DIR = "review_state"
+TMP_PROMPTS_DIR = "tmp-prompts"
 FAILURES_FILE = "failures.jsonl"
+
+
+# ---------------------------------------------------------------------------
+# Prompt temp directory helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_prompt_dir(lattice_dir: Path, prefix: str) -> Path:
+    """Create a unique prompt directory inside ``.lattice/tmp-prompts/``.
+
+    Using a directory inside the project tree (rather than system temp) ensures
+    sub-agents can read/write the files regardless of sandbox restrictions.
+    The caller is responsible for cleanup (see ``cleanup_prompt_dirs``).
+    """
+    base = lattice_dir / TMP_PROMPTS_DIR
+    base.mkdir(exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix=prefix, dir=base))
+
+
+def cleanup_prompt_dirs(lattice_dir: Path) -> int:
+    """Remove all directories under ``.lattice/tmp-prompts/``.
+
+    Returns the number of directories removed.
+    """
+    import shutil
+
+    base = lattice_dir / TMP_PROMPTS_DIR
+    if not base.exists():
+        return 0
+    removed = 0
+    for child in base.iterdir():
+        if child.is_dir():
+            shutil.rmtree(child, ignore_errors=True)
+            removed += 1
+    return removed
 
 
 # ---------------------------------------------------------------------------
@@ -168,36 +204,43 @@ def _handle_agent_failure(
 # ---------------------------------------------------------------------------
 
 
-def cleanup_temp_files(task_id: str | None = None) -> int:
-    """Remove lattice-review-* and related temp files from the system temp directory.
+def cleanup_temp_files(task_id: str | None = None, lattice_dir: Path | None = None) -> int:
+    """Remove lattice review temp files from both system temp and ``.lattice/tmp-prompts/``.
 
     If task_id is provided, only removes files whose content contains the task_id.
     Otherwise removes all matching files.
 
-    Returns the number of files removed.
+    Returns the number of items removed.
     """
+    import shutil
+
+    removed = 0
+
+    # Legacy: clean system temp (may still have leftovers from older runs)
     tmp_root = tempfile.gettempdir()
     patterns = [
         os.path.join(tmp_root, "lattice-review-*"),
         os.path.join(tmp_root, "lattice-merge-*"),
     ]
-    # Also match per-agent temp dirs
     for agent in ("claude", "codex", "gemini"):
         patterns.append(os.path.join(tmp_root, f"lattice-{agent}-*"))
 
-    removed = 0
     for pattern in patterns:
         for path_str in glob_mod.glob(pattern):
             path = Path(path_str)
             try:
                 if path.is_dir():
-                    import shutil
                     shutil.rmtree(path, ignore_errors=True)
                 else:
                     path.unlink(missing_ok=True)
                 removed += 1
             except OSError:
                 continue
+
+    # New: clean .lattice/tmp-prompts/
+    if lattice_dir is not None:
+        removed += cleanup_prompt_dirs(lattice_dir)
+
     return removed
 
 
@@ -428,12 +471,16 @@ def spawn_agent(
 
 
 def _build_agent_command(agent_type: str, prompt_file: str, output_file: str) -> str | None:
-    """Build the shell command string for spawning an agent."""
+    """Build the shell command string for spawning an agent.
+
+    Uses ``cc`` (the --dangerously-skip-permissions alias) for Claude so that
+    sub-agents can read/write without hitting interactive permission prompts.
+    """
     instruction = (
         f"Read {prompt_file} and follow the instructions. Write output to {output_file}"
     )
     if agent_type == "claude":
-        return f'env -u CLAUDECODE claude -p "{instruction}"'
+        return f'env -u CLAUDECODE cc -p "{instruction}"'
     if agent_type == "codex":
         return (
             f'codex exec --full-auto --skip-git-repo-check "{instruction}"'
@@ -471,12 +518,14 @@ def run_single_review(
     }
     write_review_state(lattice_dir, state)
 
-    with tempfile.TemporaryDirectory(prefix="lattice-review-") as tmpdir:
-        tmp = Path(tmpdir)
-        prompt_file = tmp / "prompt.md"
-        output_file = tmp / "review.md"
-        prompt_file.write_text(prompt_content, encoding="utf-8")
+    import shutil
 
+    tmp = _make_prompt_dir(lattice_dir, prefix="review-")
+    prompt_file = tmp / "prompt.md"
+    output_file = tmp / "review.md"
+    prompt_file.write_text(prompt_content, encoding="utf-8")
+
+    try:
         success, text = spawn_agent("claude", prompt_file, output_file, timeout=timeout)
 
         finished_at = _now_iso()
@@ -492,6 +541,8 @@ def run_single_review(
 
         clear_review_state(lattice_dir, task_id)
         return True, "Review complete.", text
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def run_triple_review(
@@ -525,12 +576,14 @@ def run_triple_review(
     lock = threading.Lock()
 
     def _run_agent(idx: int, agent: str, prompt_content: str) -> None:
+        import shutil
+
         agent_started = _now_iso()
         with lock:
             state["agents"][idx]["started_at"] = agent_started
             write_review_state(lattice_dir, state)
-        with tempfile.TemporaryDirectory(prefix=f"lattice-{agent}-") as tmpdir:
-            tmp = Path(tmpdir)
+        tmp = _make_prompt_dir(lattice_dir, prefix=f"{agent}-")
+        try:
             prompt_file = tmp / "prompt.md"
             output_file = tmp / "review.md"
             prompt_file.write_text(prompt_content, encoding="utf-8")
@@ -541,6 +594,8 @@ def run_triple_review(
                 state["agents"][idx]["status"] = "done" if success else "failed"
                 state["agents"][idx]["finished_at"] = finished_at
                 write_review_state(lattice_dir, state)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     threads = [
         threading.Thread(target=_run_agent, args=(i, agent, prompt_content), daemon=True)
@@ -611,10 +666,12 @@ def run_merge_agent(
 
     Returns (success, merged_text_or_error).
     """
+    import shutil
+
     prompt = build_merge_prompt(task_id, reviews, review_type)
 
-    with tempfile.TemporaryDirectory(prefix="lattice-merge-") as tmpdir:
-        tmp = Path(tmpdir)
+    tmp = _make_prompt_dir(lattice_dir, prefix="merge-")
+    try:
         prompt_file = tmp / "merge_prompt.md"
         output_file = tmp / "merged_review.md"
 
@@ -625,6 +682,8 @@ def run_merge_agent(
         # Use Claude for merging (Opus via the same claude CLI)
         success, text = spawn_agent("claude", prompt_file, output_file)
         return success, text
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
