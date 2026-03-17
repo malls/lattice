@@ -137,6 +137,8 @@ cat .lattice/config.json | python3 -c "import sys,json; d=json.load(sys.stdin); 
 
 **The test:** If the same agent that wrote the code also reviewed it without a fresh context boundary, the review gate is not doing its job. The whole point is independent verification.
 
+**Review content validation:** Before trusting a review artifact and moving to `done`, the orchestrator must sanity-check that the content is an actual review — not an error message, stack trace, agent crash output, or empty boilerplate. A valid review references the code (files, sections, or acceptance criteria), contains a verdict (pass/fail), and reads like a human wrote it. If the review content looks like agent failure output, treat it as a failed review and re-run. This is a 5-second gut check, not a deep analysis.
+
 ### Review Verdict Routing
 
 When the orchestrator reads a completed review (from the review artifact or inline review output), it follows a **three-way routing protocol**:
