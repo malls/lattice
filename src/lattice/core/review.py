@@ -473,14 +473,15 @@ def spawn_agent(
 def _build_agent_command(agent_type: str, prompt_file: str, output_file: str) -> str | None:
     """Build the shell command string for spawning an agent.
 
-    Uses ``cc`` (the --dangerously-skip-permissions alias) for Claude so that
-    sub-agents can read/write without hitting interactive permission prompts.
+    Uses ``--dangerously-skip-permissions`` for Claude so that sub-agents can
+    read/write without hitting interactive permission prompts in non-attended
+    contexts.
     """
     instruction = (
         f"Read {prompt_file} and follow the instructions. Write output to {output_file}"
     )
     if agent_type == "claude":
-        return f'env -u CLAUDECODE cc -p "{instruction}"'
+        return f'env -u CLAUDECODE claude --dangerously-skip-permissions -p "{instruction}"'
     if agent_type == "codex":
         return (
             f'codex exec --full-auto --skip-git-repo-check "{instruction}"'
