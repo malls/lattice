@@ -849,6 +849,8 @@ def _make_handler_class(lattice_dir: Path, *, readonly: bool = False) -> type:
             allowed_keys = {
                 "background_image",
                 "column_width",
+                "day_start_hour",
+                "done_display",
                 "font_size",
                 "heat_map_enabled",
                 "lane_colors",
@@ -918,6 +920,33 @@ def _make_handler_class(lattice_dir: Path, *, readonly: bool = False) -> type:
                         _err("VALIDATION_ERROR", "'heat_map_enabled' must be a boolean"),
                     )
                     return
+
+            # Validate done_display if present
+            if "done_display" in body:
+                dd = body["done_display"]
+                if dd is not None and dd not in ("all", "recent", "grouped"):
+                    self._send_json(
+                        400,
+                        _err(
+                            "VALIDATION_ERROR",
+                            "'done_display' must be 'all', 'recent', 'grouped', or null",
+                        ),
+                    )
+                    return
+
+            # Validate day_start_hour if present
+            if "day_start_hour" in body:
+                dsh = body["day_start_hour"]
+                if dsh is not None:
+                    if not isinstance(dsh, int) or dsh < 0 or dsh > 23:
+                        self._send_json(
+                            400,
+                            _err(
+                                "VALIDATION_ERROR",
+                                "'day_start_hour' must be an integer between 0 and 23, or null",
+                            ),
+                        )
+                        return
 
             # Validate voice if present
             if "voice" in body:
@@ -1007,6 +1036,20 @@ def _make_handler_class(lattice_dir: Path, *, readonly: bool = False) -> type:
 
                     if "heat_map_enabled" in body:
                         dashboard["heat_map_enabled"] = body["heat_map_enabled"]
+
+                    if "done_display" in body:
+                        dd = body["done_display"]
+                        if dd is None:
+                            dashboard.pop("done_display", None)
+                        else:
+                            dashboard["done_display"] = dd
+
+                    if "day_start_hour" in body:
+                        dsh = body["day_start_hour"]
+                        if dsh is None:
+                            dashboard.pop("day_start_hour", None)
+                        else:
+                            dashboard["day_start_hour"] = dsh
 
                     if dashboard:
                         config["dashboard"] = dashboard

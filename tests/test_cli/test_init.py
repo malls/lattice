@@ -14,7 +14,7 @@ from lattice.core.config import default_config
 
 # Helper: standard interactive input that skips all prompts with defaults.
 # New flow prompts: name, project-name, project-code, agents.md confirm
-_SKIP_ALL = "\n\n\nn\n"  # empty name, empty project-name, empty project-code, decline agents.md
+_SKIP_ALL = "\n\n\n\nn\n"  # empty name, empty project-name, empty project-code, default done-display, decline agents.md
 
 
 class TestInitDirectoryStructure:
@@ -173,9 +173,9 @@ class TestInitActorConfig:
 
     def test_init_with_actor_flag_sets_config_default(self, tmp_path: Path) -> None:
         runner = CliRunner()
-        # --actor provided, so name prompt skipped; need: project-name, project-code, agents.md
+        # --actor provided, so name prompt skipped; need: project-name, project-code, done-display, agents.md
         result = runner.invoke(
-            cli, ["init", "--path", str(tmp_path), "--actor", "human:atin"], input="\n\nn\n"
+            cli, ["init", "--path", str(tmp_path), "--actor", "human:atin"], input="\n\n\nn\n"
         )
         assert result.exit_code == 0
 
@@ -184,8 +184,8 @@ class TestInitActorConfig:
 
     def test_init_prompts_for_actor_when_flag_omitted(self, tmp_path: Path) -> None:
         runner = CliRunner()
-        # Name prompt: "atin" (becomes human:atin), project-name, project-code, agents.md
-        result = runner.invoke(cli, ["init", "--path", str(tmp_path)], input="atin\n\n\nn\n")
+        # Name prompt: "atin" (becomes human:atin), project-name, project-code, done-display, agents.md
+        result = runner.invoke(cli, ["init", "--path", str(tmp_path)], input="atin\n\n\n\nn\n")
         assert result.exit_code == 0
 
         config = json.loads((tmp_path / ".lattice" / "config.json").read_text())
@@ -196,7 +196,7 @@ class TestInitActorConfig:
         """Typing a full actor string (with colon) uses it as-is."""
         runner = CliRunner()
         result = runner.invoke(
-            cli, ["init", "--path", str(tmp_path)], input="agent:claude\n\n\nn\n"
+            cli, ["init", "--path", str(tmp_path)], input="agent:claude\n\n\n\nn\n"
         )
         assert result.exit_code == 0
 
@@ -223,11 +223,11 @@ class TestInitActorConfig:
     def test_init_di_path_creates_agent_actor(self, tmp_path: Path) -> None:
         """Typing 'di' triggers the digital intelligence path."""
         runner = CliRunner()
-        # di, identifier, model, project-name, project-code, agents.md
+        # di, identifier, model, project-name, project-code, done-display, agents.md
         result = runner.invoke(
             cli,
             ["init", "--path", str(tmp_path)],
-            input="di\nbuilder\nclaude-opus-4\n\n\nn\n",
+            input="di\nbuilder\nclaude-opus-4\n\n\n\nn\n",
         )
         assert result.exit_code == 0
 
@@ -239,11 +239,11 @@ class TestInitActorConfig:
     def test_init_di_path_no_model(self, tmp_path: Path) -> None:
         """DI path with blank model still works."""
         runner = CliRunner()
-        # di, identifier, blank model, project-name, project-code, agents.md
+        # di, identifier, blank model, project-name, project-code, done-display, agents.md
         result = runner.invoke(
             cli,
             ["init", "--path", str(tmp_path)],
-            input="di\nscout\n\n\n\nn\n",
+            input="di\nscout\n\n\n\n\nn\n",
         )
         assert result.exit_code == 0
 
@@ -282,7 +282,7 @@ class TestInitProjectName:
         result = runner.invoke(
             cli,
             ["init", "--path", str(tmp_path)],
-            input="sarah\nBeauty Creator\nBC\nn\n",
+            input="sarah\nBeauty Creator\nBC\nn\n\nn\n",
         )
         assert result.exit_code == 0
 
@@ -509,7 +509,7 @@ class TestInitAgentsMd:
         """Interactive init, confirm agents.md -> file created."""
         runner = CliRunner()
         # name, project-name, project-code, 'y' for agents.md
-        result = runner.invoke(cli, ["init", "--path", str(tmp_path)], input="\n\n\ny\n")
+        result = runner.invoke(cli, ["init", "--path", str(tmp_path)], input="\n\n\n\ny\n")
         assert result.exit_code == 0
         assert "Created agents.md with Lattice integration" in result.output
 
@@ -537,7 +537,7 @@ class TestInitAgentsMd:
         agents_md.write_text("# My Agent Instructions\n\nExisting content.\n")
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["init", "--path", str(tmp_path)], input="\n\n\ny\n")
+        result = runner.invoke(cli, ["init", "--path", str(tmp_path)], input="\n\n\n\ny\n")
         assert result.exit_code == 0
         assert "Updated agents.md with Lattice integration" in result.output
 
@@ -551,7 +551,7 @@ class TestInitAgentsMd:
         agents_md.write_text("# My Agent\n\n## Lattice\n\nAlready here.\n")
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["init", "--path", str(tmp_path)], input="\n\n\ny\n")
+        result = runner.invoke(cli, ["init", "--path", str(tmp_path)], input="\n\n\n\ny\n")
         assert result.exit_code == 0
         assert "already has Lattice integration" in result.output
 

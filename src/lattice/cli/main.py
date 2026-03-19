@@ -390,6 +390,12 @@ def cli(ctx: click.Context) -> None:
     default=None,
     help="Plan approval gate: auto (advance on pass) or human (require human approval).",
 )
+@click.option(
+    "--done-display",
+    type=click.Choice(["all", "recent", "grouped"], case_sensitive=False),
+    default=None,
+    help="Done column display mode: all, recent (24h), or grouped (today/yesterday/previously).",
+)
 def init(
     target_path: str,
     actor: str | None,
@@ -407,6 +413,7 @@ def init(
     review_mode: str | None,
     plan_review_mode: str | None,
     plan_approval: str | None,
+    done_display: str | None,
 ) -> None:
     """Initialize a new Lattice project."""
     root = Path(target_path)
@@ -570,6 +577,21 @@ def init(
         except (click.Abort, EOFError):
             seed = False
 
+    # ── Done display prompt (interactive only) ──
+    if not non_interactive and done_display is None:
+        click.echo("")
+        click.echo("How should completed tasks display on the board?")
+        click.echo("  1) grouped \u2014 Done Today / Done Yesterday / Done Previously (default)")
+        click.echo("  2) recent  \u2014 Only tasks done in the last 24 hours")
+        click.echo("  3) all     \u2014 Show every completed task")
+        choice = click.prompt(
+            "Choice",
+            default="1",
+            show_default=False,
+        ).strip()
+        done_display_map = {"1": "grouped", "2": "recent", "3": "all"}
+        done_display = done_display_map.get(choice, "grouped")
+
     # ── Create .lattice/ ─────────────────────────────────────────────
 
     try:
@@ -600,6 +622,8 @@ def init(
             config["plan_review_mode"] = plan_review_mode
         if plan_approval:
             config["plan_approval"] = plan_approval
+        if done_display:
+            config["done_display"] = done_display
         config_content = serialize_config(config)
         atomic_write(lattice_dir / "config.json", config_content)
 

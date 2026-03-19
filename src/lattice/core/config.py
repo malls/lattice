@@ -146,6 +146,7 @@ class LatticeConfig(TypedDict, total=False):
     plan_review_mode: Literal["inline", "single", "triple"]
     plan_approval: Literal["auto", "human"]
     review_timeout_seconds: int
+    done_display: Literal["all", "recent", "grouped"]
 
 
 def default_config(preset: str = "classic") -> LatticeConfig:
@@ -225,6 +226,7 @@ def default_config(preset: str = "classic") -> LatticeConfig:
         "plan_review_mode": "inline",
         "plan_approval": "auto",
         "review_timeout_seconds": 600,
+        "done_display": "grouped",
     }
 
     return config
