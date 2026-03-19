@@ -130,7 +130,7 @@ a:hover{text-decoration:underline}
 .nav-tab.active{background:var(--accent-primary);color:var(--text-on-accent);border-color:var(--accent-primary)}
 .nav-right{margin-left:auto;display:flex;align-items:center;gap:0.5rem}
 .badge{display:inline-block;padding:0.125rem 0.5rem;border-radius:10px;font-size:.75rem;font-weight:600;white-space:nowrap;flex-shrink:0}
-.card-meta .badge{font-size:.65rem;padding:0.0625rem 0.375rem;text-transform:uppercase;letter-spacing:.02em}
+.card-meta .badge{font-size:.75em;padding:0.0625em 0.375em;text-transform:uppercase;letter-spacing:.02em}
 .badge-stat{background:var(--surface-raised);color:var(--text-secondary)}
 .btn{padding:0.25rem 0.75rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);cursor:pointer;font-size:.875rem;color:var(--text-primary)}
 .btn:hover{background:var(--surface-hover)}
@@ -352,8 +352,8 @@ tr:hover td{background:var(--surface-hover)}
 .settings-group .hint{font-size:.75rem;color:var(--text-muted);margin-top:0.125rem}
 .settings-group .btn{margin-top:0.375rem}
 .lane-color-row{display:flex;align-items:center;gap:0.5rem;margin-bottom:0.375rem;font-size:.85rem}
-.lane-color-row .lane-name{min-width:5.625rem;color:var(--text-primary)}
-.lane-color-row input[type="color"]{width:2rem;height:1.75rem;border:1px solid var(--border);border-radius:var(--radius-sm);padding:1px;cursor:pointer}
+.lane-color-row .lane-name{flex:1;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lane-color-row input[type="color"]{width:2.5rem;height:2rem;border:1px solid var(--border);border-radius:var(--radius-sm);padding:1px;cursor:pointer;flex-shrink:0}
 
 /* Modal */
 .modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:var(--overlay-bg);z-index:50;display:flex;align-items:center;justify-content:center;animation:fadeIn .2s ease}
@@ -1474,13 +1474,6 @@ select.form-control{cursor:pointer}
       <button type="button" class="btn" id="bg-image-clear">Clear</button>
     </div>
     <div class="settings-group">
-      <label>Lane Colors</label>
-      <div class="hint" style="margin-bottom:8px">Click a color to customize each swim lane header.</div>
-      <div id="lane-colors-list"></div>
-      <button type="button" class="btn" id="lane-colors-save" style="margin-top:8px">Apply Lane Colors</button>
-      <button type="button" class="btn" id="lane-colors-reset" style="margin-top:4px">Reset to Defaults</button>
-    </div>
-    <div class="settings-group">
       <div style="display:flex;align-items:center;gap:8px">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1">
           <input type="checkbox" id="heat-map-toggle">
@@ -1501,9 +1494,21 @@ select.form-control{cursor:pointer}
       <div class="hint">How completed tasks are shown on the board.</div>
     </div>
     <div class="settings-group">
+      <label for="max-items-slider">Max Items per Column <span id="max-items-value" style="font-weight:400;color:var(--text-muted)">0 (unlimited)</span></label>
+      <input type="range" id="max-items-slider" min="0" max="50" step="1" value="0" style="width:100%;cursor:pointer">
+      <div class="hint">Cap visible cards per column. 0 = show all. Overflow scrolls vertically.</div>
+    </div>
+    <div class="settings-group">
       <label for="day-start-hour-input">Day Start Hour <span id="day-start-hour-value" style="font-weight:400;color:var(--text-muted)">6:00 AM</span></label>
       <input type="range" id="day-start-hour-input" min="0" max="23" step="1" value="6" style="width:100%;cursor:pointer">
       <div class="hint">Hour when "today" begins. Tasks done before this hour count as the previous day.</div>
+    </div>
+    <div class="settings-group">
+      <label>Lane Colors</label>
+      <div class="hint" style="margin-bottom:8px">Click a color to customize each swim lane header.</div>
+      <div id="lane-colors-list"></div>
+      <button type="button" class="btn" id="lane-colors-save" style="margin-top:8px">Apply Lane Colors</button>
+      <button type="button" class="btn" id="lane-colors-reset" style="margin-top:4px">Reset to Defaults</button>
     </div>
   </div>
 </div>
@@ -2180,6 +2185,7 @@ async function init() {
     loadBackgroundSetting();
     loadHeatMapSetting();
     loadDoneDisplaySettings();
+    loadMaxItemsSetting();
     await route(hash);
   } catch(e) {
     showError(e.message);
@@ -4006,6 +4012,20 @@ function loadDoneDisplaySettings() {
   }
 }
 
+function loadMaxItemsSetting() {
+  var dc = getDashboardConfig();
+  var v = (dc.max_items_per_column != null) ? dc.max_items_per_column : 0;
+  var slider = document.getElementById("max-items-slider");
+  var label = document.getElementById("max-items-value");
+  if (slider) slider.value = v;
+  if (label) label.textContent = v === 0 ? "0 (unlimited)" : String(v);
+}
+
+function getMaxItemsPerColumn() {
+  var dc = getDashboardConfig();
+  return (dc.max_items_per_column != null) ? dc.max_items_per_column : 0;
+}
+
 // --- Board Card Helper ---
 function formatHeatAge(ts) {
   if (!ts) return "no ts";
@@ -4105,7 +4125,8 @@ function renderBoard() {
     html += '<span>' + esc(getStatusDisplayName(status)) + '</span>';
     html += '<span class="count">' + items.length + '</span>';
     html += '</div>';
-    html += '<div class="board-col-body">';
+    var maxItems = getMaxItemsPerColumn();
+    html += '<div class="board-col-body"' + (maxItems > 0 ? ' style="max-height:' + (maxItems * 5) + 'rem;overflow-y:auto"' : '') + '>';
     if (status === "done" && items.length > 0) {
       // Done column display mode
       var dc = getDashboardConfig();
@@ -6284,6 +6305,30 @@ document.getElementById("done-display-select").addEventListener("change", async 
   }
 });
 
+// Max items per column slider
+(function() {
+  var slider = document.getElementById("max-items-slider");
+  var label = document.getElementById("max-items-value");
+  var debounceTimer = null;
+  slider.addEventListener("input", function() {
+    var v = Number(slider.value);
+    label.textContent = v === 0 ? "0 (unlimited)" : String(v);
+  });
+  slider.addEventListener("change", function() {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(async function() {
+      try {
+        var v = Number(slider.value);
+        var result = await apiPost("/api/config/dashboard", {max_items_per_column: v === 0 ? null : v});
+        if (config) config.dashboard = result;
+        if (currentView === "board") renderBoard();
+      } catch(e) {
+        showToast(e.message, "error");
+      }
+    }, 300);
+  });
+})();
+
 // Day start hour slider
 (function() {
   var slider = document.getElementById("day-start-hour-input");
@@ -6339,6 +6384,7 @@ document.getElementById("refresh-btn").addEventListener("click", async function(
     loadBackgroundSetting();
     loadHeatMapSetting();
     loadDoneDisplaySettings();
+    loadMaxItemsSetting();
     await route(location.hash.slice(1));
   } catch(e) { showError(e.message); }
 });
@@ -6411,6 +6457,7 @@ function startAutoRefresh() {
           loadBackgroundSetting();
           loadHeatMapSetting();
     loadDoneDisplaySettings();
+    loadMaxItemsSetting();
         }
         await route(location.hash.slice(1));
         // Silently refresh floating detail panel if open and no active edit

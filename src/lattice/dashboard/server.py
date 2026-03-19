@@ -854,6 +854,7 @@ def _make_handler_class(lattice_dir: Path, *, readonly: bool = False) -> type:
                 "font_size",
                 "heat_map_enabled",
                 "lane_colors",
+                "max_items_per_column",
                 "theme",
                 "voice",
             }
@@ -1043,6 +1044,13 @@ def _make_handler_class(lattice_dir: Path, *, readonly: bool = False) -> type:
                             dashboard.pop("done_display", None)
                         else:
                             dashboard["done_display"] = dd
+
+                    if "max_items_per_column" in body:
+                        mic = body["max_items_per_column"]
+                        if mic is None:
+                            dashboard.pop("max_items_per_column", None)
+                        else:
+                            dashboard["max_items_per_column"] = mic
 
                     if "day_start_hour" in body:
                         dsh = body["day_start_hour"]
