@@ -1,0 +1,245 @@
+/* ==========================================================================
+   Cube v2 — DAG-Driven 2.5D Task Visualization Styles
+   ==========================================================================
+   All classes use the `cv2-` prefix. Theme-aware via CSS custom properties.
+   ========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   Container
+   --------------------------------------------------------------------------- */
+
+#cv2-container {
+  position: relative;
+  width: 100%;
+  height: calc(100vh - 60px);
+  overflow: hidden;
+  background: var(--bg-base);
+}
+
+#cv2-container canvas {
+  display: block;
+}
+
+/* ---------------------------------------------------------------------------
+   Color Legend (bottom-left)
+   --------------------------------------------------------------------------- */
+
+.cv2-legend {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  background: var(--surface);
+  opacity: 0.92;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  font-size: 11px;
+  max-width: 200px;
+  z-index: 20;
+  box-shadow: var(--shadow-card-hover);
+  pointer-events: auto;
+  font-family: var(--font-body);
+  color: var(--text-secondary);
+}
+
+.cv2-legend-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cv2-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+
+.cv2-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.cv2-legend-divider {
+  border-top: 1px solid var(--border-subtle);
+  margin: 8px 0;
+}
+
+.cv2-legend-line {
+  width: 16px;
+  height: 2px;
+  flex-shrink: 0;
+  border-radius: 1px;
+}
+
+/* ---------------------------------------------------------------------------
+   Controls Hint (top-right)
+   --------------------------------------------------------------------------- */
+
+.cv2-controls-hint {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: var(--surface);
+  opacity: 0.85;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  z-index: 20;
+  pointer-events: auto;
+  font-family: var(--font-body);
+  line-height: 1.5;
+  max-width: 260px;
+  transition: opacity 0.3s;
+}
+
+.cv2-controls-hint.cv2-hint-faded {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cv2-controls-hint kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  margin: 0 1px;
+}
+
+/* ---------------------------------------------------------------------------
+   Search (top-center)
+   --------------------------------------------------------------------------- */
+
+.cv2-search {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  pointer-events: auto;
+}
+
+.cv2-search-input {
+  width: 280px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font-body);
+  outline: none;
+  box-shadow: var(--shadow-card-hover);
+  transition: border-color 0.15s;
+}
+
+.cv2-search-input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.cv2-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.cv2-search-hidden {
+  display: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Hover Tooltip
+   --------------------------------------------------------------------------- */
+
+.cv2-tooltip {
+  position: absolute;
+  pointer-events: none;
+  z-index: 30;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  white-space: nowrap;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.1s;
+}
+
+.cv2-tooltip-id {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent-primary);
+  margin-right: 6px;
+  font-weight: 700;
+}
+
+/* ---------------------------------------------------------------------------
+   Empty / Fallback States
+   --------------------------------------------------------------------------- */
+
+.cv2-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 40px;
+  font-family: var(--font-body);
+}
+
+.cv2-empty-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.cv2-empty-msg {
+  max-width: 400px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.cv2-empty-retry {
+  padding: 8px 24px;
+  background: var(--accent-primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.cv2-empty-retry:hover {
+  background: var(--accent-hover);
+}
+
+/* ---------------------------------------------------------------------------
+   Mobile
+   --------------------------------------------------------------------------- */
+
+@media (max-width: 767px) {
+  #cv2-container {
+    display: none !important;
+  }
+  .nav-tab[data-view="cube2"] {
+    display: none;
+  }
+}

@@ -1354,6 +1354,7 @@ select.form-control{cursor:pointer}
   <span class="nav-tab" data-view="activity">Activity</span>
   <span class="nav-tab" data-view="stats">Stats</span>
   <span class="nav-tab" data-view="cube" onclick="location.hash='#/cube'">Cube</span>
+  <span class="nav-tab" data-view="cube2" onclick="location.hash='#/cube2'">Cube v2</span>
   <span class="nav-tab" data-view="web" onclick="location.hash='#/web'">Web</span>
   <div class="nav-right" style="position:relative">
     <span id="stats-badges"></span>
@@ -1521,6 +1522,8 @@ select.form-control{cursor:pointer}
 <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
 <link rel="stylesheet" href="/static/cube3d.css">
 <script src="/static/cube3d.js" defer></script>
+<link rel="stylesheet" href="/static/cube-v2.css">
+<script src="/static/cube-v2.js" defer></script>
 <script>
 (function(){
 "use strict";
@@ -2238,6 +2241,27 @@ function cleanupCube() {
   }
   cubeCurrentRevision = null;
   cubeRenderGeneration++;
+}
+
+// --- Cube v2 (DAG-driven 2.5D view) ---
+
+async function renderCubeV2Wrapper() {
+  if (typeof renderCubeV2 === 'function') {
+    await renderCubeV2();
+  } else {
+    var app = document.getElementById('app');
+    app.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:calc(100vh - 60px);color:var(--text-muted);text-align:center;padding:40px;">'
+      + '<div><div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Cube v2 unavailable</div>'
+      + '<div style="max-width:400px;line-height:1.5">The Cube v2 view requires Three.js. Check your network connection.</div>'
+      + '<button onclick="location.reload()" style="margin-top:16px;padding:8px 24px;background:var(--accent-primary);color:#fff;border:none;border-radius:var(--radius-md);cursor:pointer">Retry</button>'
+      + '</div></div>';
+  }
+}
+
+function updateCubeV2DataWrapper(data) {
+  if (typeof updateCubeV2Data === 'function') {
+    updateCubeV2Data(data);
+  }
 }
 
 // --- Web (Indra's Web view) ---
@@ -3630,14 +3654,24 @@ document.addEventListener("DOMContentLoaded", function() {
   var closeBtn = document.getElementById("dp-close");
   if (closeBtn) closeBtn.addEventListener("click", closeDetailPanel);
 
-  // Escape key closes panel (unless user is in an active inline edit)
+  // Escape key closes panels (unless user is in an active inline edit)
   document.addEventListener("keydown", function(e) {
-    if (e.key === "Escape" && _detailPanelTaskId) {
-      var active = document.activeElement;
-      var inPanel = document.getElementById("detail-panel");
-      // Don't close if user is typing in an input/textarea inside the panel
-      if (active && inPanel && inPanel.contains(active) && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
-      closeDetailPanel();
+    if (e.key === "Escape") {
+      // Settings panel: close if open (settings inputs don't need Escape protection
+      // since they auto-save on change)
+      var settingsPanel = document.getElementById("settings-panel");
+      if (settingsPanel && settingsPanel.classList.contains("open")) {
+        settingsPanel.classList.remove("open");
+        return;
+      }
+      // Detail panel: close if open
+      if (_detailPanelTaskId) {
+        var active = document.activeElement;
+        var inPanel = document.getElementById("detail-panel");
+        // Don't close if user is typing in an input/textarea inside the panel
+        if (active && inPanel && inPanel.contains(active) && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
+        closeDetailPanel();
+      }
     }
   });
 });
@@ -3655,6 +3689,10 @@ async function route(hash) {
   if (currentView === "cube" && view !== "cube" && view !== "task") {
     cleanupCube();
   }
+  // Clean up cube v2 when navigating to a different main view
+  if (currentView === "cube2" && view !== "cube2" && view !== "task") {
+    if (typeof cleanupCubeV2 === 'function') cleanupCubeV2();
+  }
   // Clean up web when navigating to a different main view
   if (currentView === "web" && view !== "web" && view !== "task") {
     cleanupWeb();
@@ -3668,6 +3706,7 @@ async function route(hash) {
   else if (view === "activity") await renderActivity();
   else if (view === "stats") await renderStats();
   else if (view === "cube") await renderCube();
+  else if (view === "cube2") await renderCubeV2Wrapper();
   else if (view === "web") await renderWeb();
   else if (view === "task" && parts[1]) await renderDetail(parts[1]);
   else renderBoard();
@@ -6122,6 +6161,27 @@ document.getElementById("settings-close").addEventListener("click", function() {
   document.getElementById("settings-panel").classList.remove("open");
 });
 
+// --- Click-outside-to-dismiss for sidebars ---
+document.addEventListener("click", function(e) {
+  // Settings panel: close if open and click is outside panel and outside toggle button
+  var settingsPanel = document.getElementById("settings-panel");
+  var settingsBtn = document.getElementById("settings-btn");
+  if (settingsPanel && settingsPanel.classList.contains("open") &&
+      !settingsPanel.contains(e.target) && !settingsBtn.contains(e.target)) {
+    settingsPanel.classList.remove("open");
+  }
+
+  // Detail panel: close if open and click is outside panel
+  // (but not if clicking a task card — that opens a new detail view)
+  var detailPanel = document.getElementById("detail-panel");
+  if (detailPanel && detailPanel.classList.contains("open") && _detailPanelTaskId &&
+      !detailPanel.contains(e.target) &&
+      !e.target.closest(".task-card") && !e.target.closest(".list-row") &&
+      !e.target.closest(".settings-panel") && !e.target.closest("#settings-btn")) {
+    closeDetailPanel();
+  }
+});
+
 // Theme selector
 document.getElementById("theme-select").addEventListener("change", async function() {
   var newTheme = this.value;
@@ -6396,7 +6456,7 @@ var AUTO_REFRESH_MS = 5000;
 function startAutoRefresh() {
   stopAutoRefresh();
   autoRefreshInterval = setInterval(async function() {
-    if (currentView !== "board" && currentView !== "list" && currentView !== "activity" && currentView !== "stats" && currentView !== "cube" && currentView !== "web") return;
+    if (currentView !== "board" && currentView !== "list" && currentView !== "activity" && currentView !== "stats" && currentView !== "cube" && currentView !== "cube2" && currentView !== "web") return;
 
     // Cube: revision-based refresh (independent data path)
     if (currentView === "cube") {
@@ -6408,6 +6468,16 @@ function startAutoRefresh() {
         if (graphData.revision && graphData.revision !== cubeCurrentRevision) {
           updateCubeData(graphData);
         }
+      } catch (e) { /* server may be restarting */ }
+      return;
+    }
+
+    // Cube v2: revision-based refresh
+    if (currentView === "cube2") {
+      try {
+        var graphData = await api("/api/graph");
+        if (currentView !== "cube2") return;
+        updateCubeV2DataWrapper(graphData);
       } catch (e) { /* server may be restarting */ }
       return;
     }
@@ -6597,7 +6667,9 @@ window._lattice = {
   getStatusDisplayName: getStatusDisplayName,
   getStatusDescription: getStatusDescription,
   getConfig: function() { return config; },
-  getCurrentView: function() { return currentView; }
+  getCurrentView: function() { return currentView; },
+  openDetailPanel: openDetailPanel,
+  closeDetailPanel: closeDetailPanel
 };
 
 // --- Boot ---
