@@ -53,10 +53,10 @@ var CV2_EDGE_COLORS = {
 };
 
 var CV2_PRIORITY_SCALE = { critical: 1.8, high: 1.3, medium: 1.0, low: 0.7 };
-var CV2_PRIORITY_BIAS = { critical: 40, high: 15, medium: 0, low: -20 };
+var CV2_PRIORITY_BIAS = { critical: 80, high: 30, medium: 0, low: -40 };
 
-var CV2_COLUMN_SPACING = 50;
-var CV2_NODE_BASE_RADIUS = 8;
+var CV2_COLUMN_SPACING = 100;
+var CV2_NODE_BASE_RADIUS = 10;
 var CV2_TUBE_DISTANCE_THRESHOLD = 150;
 var CV2_TUBE_RADIUS = 0.8;
 var CV2_TUBE_SEGMENTS = 8;
@@ -277,7 +277,7 @@ function _cv2InitSimulation(nodes, links) {
     var node = nodes[i];
     var depth = depths[node.id] || 0;
     node.x = depth * CV2_COLUMN_SPACING;
-    node.y = (Math.random() - 0.5) * 100; // slight random spread
+    node.y = (Math.random() - 0.5) * 300; // random spread
   }
 
   // Build simulation links — only include directional edges
@@ -301,12 +301,12 @@ function _cv2InitSimulation(nodes, links) {
     .force('y', d3.forceY(function(d) {
       return CV2_PRIORITY_BIAS[d.priority] || 0;
     }).strength(0.08))
-    .force('charge', d3.forceManyBody().strength(-40).distanceMax(300))
-    .force('link', d3.forceLink(simLinks).id(function(d) { return d.id; }).distance(60).strength(0.2))
+    .force('charge', d3.forceManyBody().strength(-200).distanceMax(600))
+    .force('link', d3.forceLink(simLinks).id(function(d) { return d.id; }).distance(80).strength(0.12))
     .force('collide', d3.forceCollide(function(d) {
-      return CV2_NODE_BASE_RADIUS * (CV2_PRIORITY_SCALE[d.priority] || 1) * 1.5;
-    }).strength(0.7))
-    .alphaDecay(0.02)
+      return CV2_NODE_BASE_RADIUS * (CV2_PRIORITY_SCALE[d.priority] || 1) * 2.8;
+    }).strength(0.85))
+    .alphaDecay(0.018)
     .velocityDecay(0.3);
 
   _cv2.nodeData = nodes;
@@ -614,7 +614,13 @@ function _cv2SetupControls() {
 
   _cv2._mouseUpHandler = function(e) {
     if (_cv2._dragState && !_cv2._dragState.moved) {
-      // This was a click, not a drag — handle in click handler
+      // This was a click, not a drag — handle selection
+      var hit = _cv2HitTest(e);
+      if (hit !== null) {
+        _cv2SelectNode(hit);
+      } else {
+        _cv2DeselectNode();
+      }
     }
     _cv2._dragState = null;
   };
@@ -968,7 +974,7 @@ function _cv2FitCameraToGraph() {
   // Distance needed to fit X extent (accounting for aspect)
   var distForX = extentX / (Math.tan(fovRad) * aspect);
   // Use whichever is larger, with some breathing room
-  var fitDist = Math.max(distForY, distForX) * 1.3;
+  var fitDist = Math.max(distForY, distForX) * 1.15;
 
   // Clamp
   fitDist = Math.max(CV2_CAM_MIN_DISTANCE, Math.min(CV2_CAM_MAX_DISTANCE, fitDist));
