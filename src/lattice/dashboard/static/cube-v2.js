@@ -66,8 +66,8 @@ var CV2_CAM_DEFAULT_TILT = 30 * Math.PI / 180; // 30 degrees from horizontal
 var CV2_CAM_MIN_TILT = 15 * Math.PI / 180;
 var CV2_CAM_MAX_TILT = 60 * Math.PI / 180;
 var CV2_CAM_DEFAULT_DISTANCE = 400;
-var CV2_CAM_MIN_DISTANCE = 50;
-var CV2_CAM_MAX_DISTANCE = 2000;
+var CV2_CAM_MIN_DISTANCE = 100;
+var CV2_CAM_MAX_DISTANCE = 1500;
 var CV2_PAN_SPEED = 0.8;
 var CV2_ZOOM_SPEED = 0.05;
 var CV2_TILT_SPEED = 0.005;
@@ -123,6 +123,11 @@ var _cv2 = {
   _dblClickHandler: null,
   // Tooltip
   _tooltipEl: null,
+  // Node labels (HTML overlay)
+  _labelContainer: null,
+  _labelEls: [],
+  // Click dedup
+  _lastClickHandledByMouseUp: false,
   // Revision
   currentRevision: null,
   // Internal
@@ -223,10 +228,10 @@ function _cv2InitScene() {
   // Scene
   _cv2.scene = new THREE.Scene();
   _cv2.scene.background = new THREE.Color(0x0a0a0a);
-  _cv2.scene.fog = new THREE.Fog(0x0a0a0a, 600, 1500);
+  _cv2.scene.fog = new THREE.Fog(0x0a0a0a, 1500, 3000);
 
   // Camera
-  _cv2.camera = new THREE.PerspectiveCamera(50, w / h, 1, 5000);
+  _cv2.camera = new THREE.PerspectiveCamera(50, w / h, 1, 8000);
   _cv2.camTarget = new THREE.Vector3(0, 0, 0);
   _cv2.camDistance = CV2_CAM_DEFAULT_DISTANCE;
   _cv2.camTilt = CV2_CAM_DEFAULT_TILT;
@@ -558,6 +563,11 @@ function _cv2Animate() {
   if (_cv2.renderer && _cv2.scene && _cv2.camera) {
     _cv2.renderer.render(_cv2.scene, _cv2.camera);
   }
+
+  // --- Update HTML labels (every 2nd frame for performance) ---
+  if (_cv2._frameCount % 2 === 0) {
+    _cv2UpdateLabels();
+  }
 }
 
 /* --------------------------------------------------------------------------
@@ -572,7 +582,6 @@ function _cv2SetupControls() {
   // --- Mouse drag for pan ---
   _cv2._mouseDownHandler = function(e) {
     if (e.button !== 0 && e.button !== 1) return; // left or middle
-    e.preventDefault();
     _cv2._dragState = {
       startX: e.clientX,
       startY: e.clientY,
@@ -615,6 +624,7 @@ function _cv2SetupControls() {
   _cv2._mouseUpHandler = function(e) {
     if (_cv2._dragState && !_cv2._dragState.moved) {
       // This was a click, not a drag — handle selection
+      _cv2._lastClickHandledByMouseUp = true;
       var hit = _cv2HitTest(e);
       if (hit !== null) {
         _cv2SelectNode(hit);
@@ -678,9 +688,14 @@ function _cv2SetupControls() {
   };
 
   // --- Click to select ---
+  // Note: click fires after mouseup. mouseup handles selection for drag vs click
+  // distinction. Keep click handler as fallback for accessibility / programmatic clicks.
   _cv2._clickHandler = function(e) {
-    if (_cv2._dragState) return; // was dragging
-    // Check if we clicked a node
+    // Already handled by mouseup if _dragState was set
+    if (_cv2._lastClickHandledByMouseUp) {
+      _cv2._lastClickHandledByMouseUp = false;
+      return;
+    }
     var hit = _cv2HitTest(e);
     if (hit !== null) {
       _cv2SelectNode(hit);
@@ -772,11 +787,23 @@ function _cv2UpdateHover(e) {
   if (hit !== null && _cv2.nodeData[hit]) {
     var node = _cv2.nodeData[hit];
     _cv2.hoveredNode = node.id;
-    tooltip.innerHTML = '<span class="cv2-tooltip-id">' + _cv2Esc(node.short_id || '') + '</span>'
-      + _cv2Esc(node.title || 'Untitled');
+    var statusName = _cv2GetStatusDisplayName(node.status || 'backlog');
+    var statusColor = CV2_STATUS_COLORS[node.status] || '#6b7280';
+    var priorityLabel = (node.priority || 'medium');
+    var typeLabel = (node.type || 'task');
+    var snippet = node.description_snippet || '';
+    if (snippet.length > 120) snippet = snippet.substring(0, 120) + '...';
+
+    tooltip.innerHTML = '<div class="cv2-tooltip-header">'
+      + '<span class="cv2-tooltip-id">' + _cv2Esc(node.short_id || '') + '</span>'
+      + '<span class="cv2-tooltip-status" style="color:' + statusColor + '">' + _cv2Esc(statusName) + '</span>'
+      + '</div>'
+      + '<div class="cv2-tooltip-title">' + _cv2Esc(node.title || 'Untitled') + '</div>'
+      + '<div class="cv2-tooltip-meta">' + _cv2Esc(priorityLabel) + ' &middot; ' + _cv2Esc(typeLabel) + '</div>'
+      + (snippet ? '<div class="cv2-tooltip-desc">' + _cv2Esc(snippet) + '</div>' : '');
     tooltip.style.display = 'block';
-    tooltip.style.left = (e.clientX + 12) + 'px';
-    tooltip.style.top = (e.clientY - 8) + 'px';
+    tooltip.style.left = (e.clientX + 14) + 'px';
+    tooltip.style.top = (e.clientY - 10) + 'px';
 
     // Change cursor
     if (_cv2.renderer) _cv2.renderer.domElement.style.cursor = 'pointer';
@@ -939,6 +966,77 @@ function _cv2CreateHUD() {
   tooltip.style.display = 'none';
   document.body.appendChild(tooltip);
   _cv2._tooltipEl = tooltip;
+
+  // --- Node labels (HTML overlay showing short_id on each bubble) ---
+  var labelContainer = document.createElement('div');
+  labelContainer.className = 'cv2-label-container';
+  container.appendChild(labelContainer);
+  _cv2._labelContainer = labelContainer;
+  _cv2._labelEls = [];
+}
+
+function _cv2CreateLabels(nodes) {
+  if (!_cv2._labelContainer) return;
+  _cv2._labelContainer.innerHTML = '';
+  _cv2._labelEls = [];
+  for (var i = 0; i < nodes.length; i++) {
+    var el = document.createElement('div');
+    el.className = 'cv2-node-label';
+    el.textContent = nodes[i].short_id || '';
+    _cv2._labelContainer.appendChild(el);
+    _cv2._labelEls.push(el);
+  }
+}
+
+function _cv2UpdateLabels() {
+  if (!_cv2._labelEls.length || !_cv2.camera || !_cv2.renderer) return;
+  var canvas = _cv2.renderer.domElement;
+  var w = canvas.clientWidth, h = canvas.clientHeight;
+  var tmpVec = new THREE.Vector3();
+  var nodes = _cv2.nodeData;
+
+  for (var i = 0; i < _cv2._labelEls.length; i++) {
+    var el = _cv2._labelEls[i];
+    if (i >= nodes.length) { el.style.display = 'none'; continue; }
+    var node = nodes[i];
+    tmpVec.set(node.x || 0, node.y || 0, 0);
+    tmpVec.project(_cv2.camera);
+
+    // Check if behind camera
+    if (tmpVec.z > 1) { el.style.display = 'none'; continue; }
+
+    var sx = (tmpVec.x * 0.5 + 0.5) * w;
+    var sy = (-tmpVec.y * 0.5 + 0.5) * h;
+
+    // Position label below the node
+    var scale = CV2_PRIORITY_SCALE[node.priority] || 1.0;
+    var offsetY = CV2_NODE_BASE_RADIUS * scale * 0.8 + 4;
+
+    el.style.display = '';
+    el.style.left = sx + 'px';
+    el.style.top = (sy + offsetY) + 'px';
+
+    // Dim if search/selection active and not matching
+    if (_cv2.searchActive && !_cv2.searchMatches.has(node.id)) {
+      el.style.opacity = '0.1';
+    } else if (_cv2.selectedNode && _cv2.selectedNode !== node.id) {
+      // Check connectivity
+      var connected = false;
+      if (_cv2._validLinks) {
+        for (var j = 0; j < _cv2._validLinks.length; j++) {
+          var vl = _cv2._validLinks[j];
+          if ((vl.source.id === _cv2.selectedNode && vl.target.id === node.id) ||
+              (vl.target.id === _cv2.selectedNode && vl.source.id === node.id)) {
+            connected = true;
+            break;
+          }
+        }
+      }
+      el.style.opacity = connected ? '1' : '0.2';
+    } else {
+      el.style.opacity = '0.9';
+    }
+  }
 }
 
 /* --------------------------------------------------------------------------
@@ -1041,6 +1139,7 @@ async function renderCubeV2() {
   _cv2CreateNodes(nodes);
   _cv2CreateEdges(links, nodes);
   _cv2CreateHUD();
+  _cv2CreateLabels(nodes);
   _cv2SetupControls();
 
   // Start animation
@@ -1190,4 +1289,7 @@ function cleanupCubeV2() {
   _cv2._flowT = null;
   _cv2.currentRevision = null;
   _cv2.camTarget = null;
+  _cv2._labelContainer = null;
+  _cv2._labelEls = [];
+  _cv2._lastClickHandledByMouseUp = false;
 }
