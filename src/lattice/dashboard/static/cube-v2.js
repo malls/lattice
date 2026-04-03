@@ -1136,25 +1136,28 @@ async function renderCubeV2() {
   // Build
   _cv2InitScene();
   _cv2InitSimulation(nodes, links);
+
+  // Pre-settle the simulation so the layout is stable before first render.
+  // Running ticks synchronously avoids the jarring snap as nodes find positions.
+  if (_cv2.simulation) {
+    _cv2.simulation.alpha(1);
+    for (var tick = 0; tick < 200; tick++) {
+      _cv2.simulation.tick();
+    }
+    _cv2.simulation.alpha(0.05); // let it run with low residual energy for fine-tuning
+  }
+
   _cv2CreateNodes(nodes);
   _cv2CreateEdges(links, nodes);
   _cv2CreateHUD();
   _cv2CreateLabels(nodes);
   _cv2SetupControls();
 
+  // Fit camera to the pre-settled layout — no delayed refits needed
+  _cv2FitCameraToGraph();
+
   // Start animation
   _cv2Animate();
-
-  // Center camera on graph after simulation settles
-  // First fit at 1s (rough), then refine at 3s (settled)
-  setTimeout(function() {
-    if (_cv2.generation !== myGen) return;
-    _cv2FitCameraToGraph();
-  }, 1000);
-  setTimeout(function() {
-    if (_cv2.generation !== myGen) return;
-    _cv2FitCameraToGraph();
-  }, 3000);
 }
 
 function updateCubeV2Data(data) {
