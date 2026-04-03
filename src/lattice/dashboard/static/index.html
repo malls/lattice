@@ -6172,12 +6172,13 @@ document.addEventListener("click", function(e) {
   }
 
   // Detail panel: close if open and click is outside panel
-  // (but not if clicking a task card — that opens a new detail view)
+  // (but not if clicking a task card, cube node, or other element that opens a detail view)
   var detailPanel = document.getElementById("detail-panel");
   if (detailPanel && detailPanel.classList.contains("open") && _detailPanelTaskId &&
       !detailPanel.contains(e.target) &&
       !e.target.closest(".task-card") && !e.target.closest(".list-row") &&
-      !e.target.closest(".settings-panel") && !e.target.closest("#settings-btn")) {
+      !e.target.closest(".settings-panel") && !e.target.closest("#settings-btn") &&
+      !e.target.closest("#cv2-container") && !e.target.closest("#cube3d-container")) {
     closeDetailPanel();
   }
 });
