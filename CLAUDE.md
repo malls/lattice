@@ -130,6 +130,10 @@ json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n"
 - Schema changes: bump `schema_version`, maintain forward compatibility.
 - New decisions: append to `Decisions.md`.
 
+## Hosting & Remote
+
+Lattice is a **public project** hosted on **GitHub** (`origin` → `github.com/Stage-11-Agentics/lattice`). Although Stage 11's other projects use Forgejo, Lattice stays on GitHub for public visibility. Push to `origin` (GitHub), not Forgejo.
+
 ## What Not to Build (v0)
 
 Refer to `ProjectRequirements_v1.md` for full non-goals. Key reminders:
@@ -379,6 +383,7 @@ When you discover something important about how this project works — a pattern
 ```
 lattice create "<title>" --actor agent:<id>
 lattice status <task> <status> --actor agent:<id>
+lattice complete <task> --review "..." --actor agent:<id>   # closing ritual (not raw status done)
 lattice assign <task> <actor> --actor agent:<id>
 lattice comment <task> "<text>" --actor agent:<id>
 lattice link <task> <type> <target> --actor agent:<id>

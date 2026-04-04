@@ -113,6 +113,8 @@ lattice archive PROJ-1 --actor agent:claude-cli
 
 Options for `create`: `--priority` (critical/high/medium/low/none), `--type` (task/bug/spike/chore), `--description "..."`, `--assign agent:claude-cli`
 
+**Task description depth:** Match description detail to task ambiguity. Bug fixes and chores can be one-liners ("Add regex validation to frequency names"). Features and integration tasks should include: (1) what it does, (2) acceptance criteria, (3) architectural context, (4) what the user/operator experiences when done.
+
 Relationship types for `link`: `blocks`, `blocked_by`, `subtask_of`, `parent_of`, `depends_on`, `depended_on_by`, `related_to`
 
 ## Status Workflow

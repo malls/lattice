@@ -968,9 +968,15 @@ function _cube3dRenderWorkspacePanel(node, fullData) {
     html += '<ul class="cube3d-workspace-timeline">';
     events.forEach(function(ev) {
       var timeStr = ev.ts ? new Date(ev.ts).toLocaleString() : '';
+      var typeLabel = (ev.type || '').replace(/_/g, ' ');
+      if (ev.type === 'status_changed' && ev.data) {
+        var fromStatus = (ev.data.from || '?').replace(/_/g, ' ');
+        var toStatus = (ev.data.to || '?').replace(/_/g, ' ');
+        typeLabel = fromStatus + ' → ' + toStatus;
+      }
       html += '<li class="cube3d-workspace-event">'
         + '<span class="cube3d-workspace-event-type">'
-        + (ev.type || '').replace(/_/g, ' ') + '</span>'
+        + typeLabel + '</span>'
         + '<span class="cube3d-workspace-event-actor">'
         + (ev.actor || '') + '</span>'
         + '<span class="cube3d-workspace-event-time">'
