@@ -24,6 +24,7 @@ from lattice.core.comments import (
 from lattice.core.config import (
     VALID_PRIORITIES,
     VALID_URGENCIES,
+    get_project_type,
     serialize_config,
     validate_status,
     validate_task_type,
@@ -178,6 +179,10 @@ def _make_handler_class(lattice_dir: Path, *, readonly: bool = False) -> type:
                 self._handle_archived(ld)
             elif path == "/api/graph":
                 self._handle_graph(ld)
+            elif path == "/api/structure":
+                self._handle_structure(ld)
+            elif path == "/api/structure/events":
+                self._handle_structure_events(ld)
             elif path == "/api/git":
                 self._handle_git_summary(ld)
             elif path.startswith("/api/git/branches/"):
@@ -620,6 +625,108 @@ def _make_handler_class(lattice_dir: Path, *, readonly: bool = False) -> type:
             self.send_header("ETag", etag)
             self.end_headers()
             self.wfile.write(data)
+
+        # ---------------------------------------------------------------
+        # Structure Overview handlers (Cell 05 mission-control view)
+        # ---------------------------------------------------------------
+
+        def _structure_gate(self, ld: Path) -> dict | None:
+            """Return loaded config if project_type == 'structure', else send 403."""
+            try:
+                config = json.loads((ld / "config.json").read_text())
+            except (json.JSONDecodeError, OSError) as exc:
+                self._send_json(500, _err("READ_ERROR", f"Failed to read config: {exc}"))
+                return None
+            if get_project_type(config) != "structure":
+                self._send_json(
+                    403,
+                    _err(
+                        "NOT_STRUCTURE_PROJECT",
+                        "Structure endpoints are only available on structure projects.",
+                    ),
+                )
+                return None
+            return config
+
+        def _load_structure_file(self, project_root: Path) -> tuple[dict | None, str | None]:
+            """Load structure.{json,yaml} from the project root.
+
+            Returns (data, error_message). JSON is tried first; YAML is
+            attempted via lazy pyyaml import if JSON is absent.
+            """
+            json_path = project_root / "structure.json"
+            if json_path.is_file():
+                try:
+                    return json.loads(json_path.read_text()), None
+                except (json.JSONDecodeError, OSError) as exc:
+                    return None, f"Failed to parse structure.json: {exc}"
+            yaml_path = project_root / "structure.yaml"
+            if yaml_path.is_file():
+                try:
+                    import yaml  # type: ignore[import-not-found]
+                except ImportError:
+                    return None, (
+                        "structure.yaml found but pyyaml is not installed. "
+                        "Install pyyaml or provide structure.json instead."
+                    )
+                try:
+                    return yaml.safe_load(yaml_path.read_text()), None
+                except (OSError, Exception) as exc:  # noqa: BLE001
+                    return None, f"Failed to parse structure.yaml: {exc}"
+            return None, "structure.json / structure.yaml not found at project root."
+
+        def _handle_structure(self, ld: Path) -> None:
+            """GET /api/structure — return parsed structure.{json,yaml}."""
+            if self._structure_gate(ld) is None:
+                return
+            project_root = ld.parent
+            data, err = self._load_structure_file(project_root)
+            if err is not None:
+                self._send_json(404, _err("STRUCTURE_NOT_FOUND", err))
+                return
+            self._send_json(200, _ok(data))
+
+        def _handle_structure_events(self, ld: Path) -> None:
+            """GET /api/structure/events?limit=N — tail of events.jsonl at project root."""
+            if self._structure_gate(ld) is None:
+                return
+
+            # Parse limit from query string
+            parsed = urlparse(self.path)
+            qs = parse_qs(parsed.query)
+            try:
+                limit = int(qs.get("limit", ["200"])[0])
+            except ValueError:
+                limit = 200
+            limit = max(1, min(limit, 2000))
+
+            events_path = ld.parent / "events.jsonl"
+            if not events_path.is_file():
+                self._send_json(200, _ok({"events": [], "truncated": False}))
+                return
+
+            try:
+                raw_lines = events_path.read_text().splitlines()
+            except OSError as exc:
+                self._send_json(500, _err("READ_ERROR", f"Failed to read events.jsonl: {exc}"))
+                return
+
+            tail = raw_lines[-limit:]
+            events: list[dict] = []
+            for line in tail:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    events.append(json.loads(line))
+                except json.JSONDecodeError:
+                    # Silently skip malformed lines — event logs may be mid-write.
+                    continue
+
+            self._send_json(
+                200,
+                _ok({"events": events, "truncated": len(raw_lines) > limit}),
+            )
 
         # ---------------------------------------------------------------
         # Git API handlers

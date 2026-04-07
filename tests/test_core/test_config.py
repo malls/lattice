@@ -737,3 +737,28 @@ class TestWorkflowInvariants:
             assert target in _ALL_STATUSES, (
                 f"Transition from '{status}' targets undefined status '{target}'"
             )
+
+
+class TestProjectType:
+    """Tests for the project_type field (CEL-77)."""
+
+    def test_default_config_omits_project_type(self) -> None:
+        # Default-generated configs don't set project_type — it's opt-in.
+        cfg = default_config()
+        assert "project_type" not in cfg
+
+    def test_get_project_type_defaults_to_standard(self) -> None:
+        from lattice.core.config import get_project_type
+
+        assert get_project_type({}) == "standard"
+        assert get_project_type({"project_type": None}) == "standard"
+
+    def test_get_project_type_returns_structure(self) -> None:
+        from lattice.core.config import get_project_type
+
+        assert get_project_type({"project_type": "structure"}) == "structure"
+
+    def test_get_project_type_invalid_falls_back_to_standard(self) -> None:
+        from lattice.core.config import get_project_type
+
+        assert get_project_type({"project_type": "bogus"}) == "standard"

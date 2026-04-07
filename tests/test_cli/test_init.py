@@ -851,3 +851,83 @@ class TestSetupClaude:
         assert "Other content" in content
         assert "Old lattice info" not in content
         assert "Creating Tasks (Non-Negotiable)" in content
+
+
+class TestInitProjectType:
+    """Tests for lattice init --type (CEL-77)."""
+
+    def test_init_with_type_structure(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "init",
+                "--path",
+                str(tmp_path),
+                "--actor",
+                "human:atin",
+                "--project-code",
+                "TST",
+                "--type",
+                "structure",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        config = json.loads((tmp_path / ".lattice" / "config.json").read_text())
+        assert config["project_type"] == "structure"
+
+    def test_init_default_omits_project_type(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "init",
+                "--path",
+                str(tmp_path),
+                "--actor",
+                "human:atin",
+                "--project-code",
+                "TST",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        config = json.loads((tmp_path / ".lattice" / "config.json").read_text())
+        assert "project_type" not in config
+
+    def test_init_explicit_standard_omits_project_type(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "init",
+                "--path",
+                str(tmp_path),
+                "--actor",
+                "human:atin",
+                "--project-code",
+                "TST",
+                "--type",
+                "standard",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        config = json.loads((tmp_path / ".lattice" / "config.json").read_text())
+        assert "project_type" not in config
+
+    def test_init_invalid_type_rejected(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "init",
+                "--path",
+                str(tmp_path),
+                "--actor",
+                "human:atin",
+                "--project-code",
+                "TST",
+                "--type",
+                "supercell",
+            ],
+        )
+        assert result.exit_code != 0

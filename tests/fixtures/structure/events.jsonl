@@ -1,0 +1,15 @@
+{"ts":"2026-04-06T10:00:00Z","frequency":"lifecycle","kind":"cell.spawned","cell":"simple-1","task":null,"msg":"Cell spawned"}
+{"ts":"2026-04-06T10:05:00Z","frequency":"lifecycle","kind":"cell.spawned","cell":"simple-2","task":null,"msg":"Cell spawned"}
+{"ts":"2026-04-06T10:10:00Z","frequency":"lifecycle","kind":"cell.spawned","cell":"board-1","task":null,"msg":"Cell spawned"}
+{"ts":"2026-04-06T10:15:00Z","frequency":"tasks","kind":"task.created","cell":null,"task":"CEL-42","msg":"New task created"}
+{"ts":"2026-04-06T10:16:00Z","frequency":"tasks","kind":"task.claimed","cell":"simple-1","task":"CEL-42","msg":"Simple cell claimed CEL-42"}
+{"ts":"2026-04-06T10:20:00Z","frequency":"economy","kind":"energy.spent","cell":"simple-1","task":"CEL-42","msg":"Spent 5 energy"}
+{"ts":"2026-04-06T10:30:00Z","frequency":"tasks","kind":"task.created","cell":null,"task":"CEL-43","msg":"New task created"}
+{"ts":"2026-04-06T10:32:00Z","frequency":"tasks","kind":"task.claimed","cell":"board-1","task":"CEL-43","msg":"Board cell claimed CEL-43"}
+{"ts":"2026-04-06T10:45:00Z","frequency":"tasks","kind":"task.review_requested","cell":"board-1","task":"CEL-43","msg":"Moved to review"}
+{"ts":"2026-04-06T10:50:00Z","frequency":"economy","kind":"fun.earned","cell":"simple-1","task":"CEL-42","msg":"Earned 3 fun"}
+{"ts":"2026-04-06T10:55:00Z","frequency":"heartbeat","kind":"cell.heartbeat","cell":"simple-1","task":"CEL-42","msg":"alive"}
+{"ts":"2026-04-06T10:56:00Z","frequency":"heartbeat","kind":"cell.heartbeat","cell":"simple-2","task":null,"msg":"alive"}
+{"ts":"2026-04-06T10:57:00Z","frequency":"heartbeat","kind":"cell.heartbeat","cell":"board-1","task":"CEL-43","msg":"alive"}
+this-is-a-malformed-line-that-should-be-skipped
+{"ts":"2026-04-06T11:00:00Z","frequency":"tasks","kind":"task.accepted","cell":"board-1","task":"CEL-43","msg":"Assessor accepted"}

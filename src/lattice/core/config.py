@@ -147,6 +147,7 @@ class LatticeConfig(TypedDict, total=False):
     plan_approval: Literal["auto", "human"]
     review_timeout_seconds: int
     done_display: Literal["all", "recent", "grouped"]
+    project_type: Literal["standard", "structure"]
 
 
 def default_config(preset: str = "classic") -> LatticeConfig:
@@ -230,6 +231,21 @@ def default_config(preset: str = "classic") -> LatticeConfig:
     }
 
     return config
+
+
+VALID_PROJECT_TYPES: tuple[str, ...] = ("standard", "structure")
+
+
+def get_project_type(config: dict) -> str:
+    """Return the project type, defaulting to ``"standard"`` when unset.
+
+    Lazy migration: projects initialized before the ``project_type`` field
+    existed are treated as ``standard`` without rewriting their config.
+    """
+    value = config.get("project_type")
+    if value in VALID_PROJECT_TYPES:
+        return value  # type: ignore[return-value]
+    return "standard"
 
 
 def get_display_name(config: dict, status: str) -> str:

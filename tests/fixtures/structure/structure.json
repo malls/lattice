@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "structure": {
+    "name": "demo-structure",
+    "root": "/tmp/demo-structure",
+    "started_at": "2026-04-06T10:00:00Z",
+    "uptime_seconds": 3600,
+    "last_event_at": "2026-04-06T11:00:00Z"
+  },
+  "totals": {
+    "cells_alive": 3,
+    "fun": 47,
+    "energy": 220
+  },
+  "cells": [
+    {
+      "name": "simple-1",
+      "family": "simple",
+      "status": "working",
+      "energy": 80,
+      "fun": 12,
+      "trust": 0.75,
+      "current_task": "CEL-42",
+      "last_heartbeat": "2026-04-06T10:59:50Z",
+      "spawned_at": "2026-04-06T10:00:00Z"
+    },
+    {
+      "name": "simple-2",
+      "family": "simple",
+      "status": "idle",
+      "energy": 95,
+      "fun": 20,
+      "trust": 0.80,
+      "current_task": null,
+      "last_heartbeat": "2026-04-06T10:59:55Z",
+      "spawned_at": "2026-04-06T10:05:00Z"
+    },
+    {
+      "name": "board-1",
+      "family": "board",
+      "status": "review",
+      "energy": 45,
+      "fun": 15,
+      "trust": 0.60,
+      "current_task": "CEL-43",
+      "last_heartbeat": "2026-04-06T10:59:40Z",
+      "spawned_at": "2026-04-06T10:10:00Z"
+    }
+  ]
+}

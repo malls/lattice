@@ -1356,6 +1356,7 @@ select.form-control{cursor:pointer}
   <span class="nav-tab" data-view="cube" onclick="location.hash='#/cube'">Cube</span>
   <span class="nav-tab" data-view="cube2" onclick="location.hash='#/cube2'">Cube v2</span>
   <span class="nav-tab" data-view="web" onclick="location.hash='#/web'">Web</span>
+  <span class="nav-tab nav-tab-structure" data-view="structure" style="display:none">Structure</span>
   <div class="nav-right" style="position:relative">
     <span id="stats-badges"></span>
     <button type="button" class="btn btn-new-task" id="new-task-btn" title="Create new task">+ New Task</button>
@@ -2198,6 +2199,11 @@ async function init() {
 function updateTabs() {
   document.querySelectorAll(".nav-tab").forEach(function(el) {
     el.classList.toggle("active", el.dataset.view === currentView);
+  });
+  // Structure tab is only visible on projects where project_type === "structure".
+  var isStructure = config && config.project_type === "structure";
+  document.querySelectorAll(".nav-tab-structure").forEach(function(el) {
+    el.style.display = isStructure ? "" : "none";
   });
 }
 
@@ -3676,6 +3682,157 @@ document.addEventListener("DOMContentLoaded", function() {
   });
 });
 
+// --- Structure Overview (Cell 05 mission-control view) ---
+
+var _structureState = { data: null, events: [], lastRenderKey: "" };
+
+function _structureEscape(s) { return esc(s == null ? "" : String(s)); }
+
+function _structureFreqColor(freq) {
+  // Deterministic color hashing — simple char sum mod palette.
+  var palette = ["#4f9eff", "#ff6b6b", "#51cf66", "#ffd43b", "#cc5de8", "#ff922b", "#20c997", "#f783ac"];
+  var h = 0;
+  var s = String(freq || "");
+  for (var i = 0; i < s.length; i++) h = (h + s.charCodeAt(i)) | 0;
+  return palette[Math.abs(h) % palette.length];
+}
+
+function _structureRenderFrame() {
+  var app = document.getElementById("app");
+  var s = _structureState.data;
+  var evs = _structureState.events;
+
+  var headerHtml;
+  if (!s) {
+    headerHtml = '<div class="structure-header" style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;gap:24px;flex-wrap:wrap;align-items:center">'
+      + '<div style="color:var(--text-muted)">Waiting for structure.json\u2026</div>'
+      + '</div>';
+  } else {
+    var structMeta = s.structure || {};
+    var totals = s.totals || {};
+    headerHtml = '<div class="structure-header" style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;gap:24px;flex-wrap:wrap;align-items:baseline">'
+      + '<div style="font-weight:700;font-size:1.15rem">' + _structureEscape(structMeta.name || "Structure") + '</div>'
+      + '<div style="color:var(--text-secondary);font-size:.85rem">uptime <strong>' + _structureEscape(structMeta.uptime_seconds != null ? (structMeta.uptime_seconds + "s") : "\u2014") + '</strong></div>'
+      + '<div style="color:var(--text-secondary);font-size:.85rem">cells <strong>' + _structureEscape(totals.cells_alive != null ? totals.cells_alive : "\u2014") + '</strong></div>'
+      + '<div style="color:var(--text-secondary);font-size:.85rem">fun <strong>' + _structureEscape(totals.fun != null ? totals.fun : "\u2014") + '</strong></div>'
+      + '<div style="color:var(--text-secondary);font-size:.85rem">energy <strong>' + _structureEscape(totals.energy != null ? totals.energy : "\u2014") + '</strong></div>'
+      + '<div style="margin-left:auto;color:var(--text-muted);font-size:.8rem">last event ' + _structureEscape(structMeta.last_event_at || "\u2014") + '</div>'
+      + '</div>';
+  }
+
+  var cells = (s && Array.isArray(s.cells)) ? s.cells : [];
+  var rosterRows = "";
+  if (cells.length === 0) {
+    rosterRows = '<tr><td colspan="8" style="color:var(--text-muted);padding:24px;text-align:center">No cells alive.</td></tr>';
+  } else {
+    cells.forEach(function(c) {
+      var energy = Number(c.energy) || 0;
+      var energyPct = Math.max(0, Math.min(100, energy));
+      var statusClass = "structure-status-" + _structureEscape(c.status || "unknown");
+      var taskCell;
+      if (c.current_task) {
+        taskCell = '<a href="#/task/' + _structureEscape(c.current_task) + '" style="color:var(--accent-primary)">' + _structureEscape(c.current_task) + '</a>';
+      } else {
+        taskCell = '<span style="color:var(--text-muted)">\u2014</span>';
+      }
+      rosterRows += '<tr>'
+        + '<td style="font-family:var(--font-mono);font-weight:600">' + _structureEscape(c.name) + '</td>'
+        + '<td>' + _structureEscape(c.family) + '</td>'
+        + '<td><span class="' + statusClass + '">' + _structureEscape(c.status || "unknown") + '</span></td>'
+        + '<td style="min-width:120px"><div style="background:var(--border);border-radius:3px;height:8px;overflow:hidden"><div style="background:var(--accent-primary);height:100%;width:' + energyPct + '%"></div></div><div style="font-size:.7rem;color:var(--text-muted);margin-top:2px">' + energy + '</div></td>'
+        + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _structureEscape(c.fun != null ? c.fun : "\u2014") + '</td>'
+        + '<td style="text-align:right;font-variant-numeric:tabular-nums">' + _structureEscape(c.trust != null ? c.trust : "\u2014") + '</td>'
+        + '<td>' + taskCell + '</td>'
+        + '<td style="color:var(--text-muted);font-size:.8rem">' + _structureEscape(c.last_heartbeat || "\u2014") + '</td>'
+        + '</tr>';
+    });
+  }
+
+  var rosterHtml = '<div class="structure-roster" style="flex:1 1 auto;overflow:auto;padding:12px 20px">'
+    + '<table style="width:100%;border-collapse:collapse;font-size:.85rem">'
+    + '<thead><tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border)">'
+    + '<th style="padding:6px 8px">name</th><th style="padding:6px 8px">family</th><th style="padding:6px 8px">status</th>'
+    + '<th style="padding:6px 8px">energy</th><th style="padding:6px 8px;text-align:right">fun</th>'
+    + '<th style="padding:6px 8px;text-align:right">trust</th><th style="padding:6px 8px">task</th>'
+    + '<th style="padding:6px 8px">last heartbeat</th></tr></thead>'
+    + '<tbody>' + rosterRows + '</tbody></table></div>';
+
+  var radioHtml = '<div class="structure-radio" style="width:340px;border-left:1px solid var(--border);display:flex;flex-direction:column">'
+    + '<div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center">'
+    + '<strong style="font-size:.85rem">Radio</strong>'
+    + '<input type="text" id="structure-radio-filter" placeholder="filter\u2026" value="' + _structureEscape(_structureState.filter || "") + '" style="flex:1;padding:3px 6px;border:1px solid var(--border);border-radius:3px;background:var(--surface);color:var(--text-primary);font-size:.8rem">'
+    + '</div>'
+    + '<div id="structure-radio-list" style="flex:1;overflow:auto;padding:6px 0;font-family:var(--font-mono);font-size:.75rem">';
+  var filter = (_structureState.filter || "").toLowerCase();
+  var filtered = evs.filter(function(e) {
+    if (!filter) return true;
+    var hay = ((e.frequency || "") + " " + (e.kind || "") + " " + (e.msg || "") + " " + (e.cell || "") + " " + (e.task || "")).toLowerCase();
+    return hay.indexOf(filter) !== -1;
+  });
+  if (filtered.length === 0) {
+    radioHtml += '<div style="padding:16px;color:var(--text-muted);text-align:center">No events.</div>';
+  } else {
+    filtered.slice(-500).forEach(function(e) {
+      var color = _structureFreqColor(e.frequency);
+      radioHtml += '<div style="padding:3px 12px;border-bottom:1px solid var(--border)">'
+        + '<span style="color:' + color + ';font-weight:600">' + _structureEscape(e.frequency || "?") + '</span> '
+        + '<span style="color:var(--text-muted)">' + _structureEscape((e.ts || "").slice(11, 19)) + '</span> '
+        + '<span>' + _structureEscape(e.kind || "") + '</span>';
+      if (e.cell) radioHtml += ' <span style="color:var(--text-secondary)">[' + _structureEscape(e.cell) + ']</span>';
+      if (e.task) radioHtml += ' <span style="color:var(--accent-primary)">' + _structureEscape(e.task) + '</span>';
+      if (e.msg) radioHtml += ' <span style="color:var(--text-secondary)">\u2014 ' + _structureEscape(e.msg) + '</span>';
+      radioHtml += '</div>';
+    });
+  }
+  radioHtml += '</div></div>';
+
+  var graphHtml = '<div class="structure-graph" style="border-top:1px solid var(--border);padding:12px 20px;min-height:80px;color:var(--text-muted);font-size:.8rem">Task graph placeholder \u2014 reuse board components (future work).</div>';
+  var narrativeHtml = '<div class="structure-narrative" style="border-top:1px solid var(--border);padding:12px 20px;min-height:60px;color:var(--text-muted);font-size:.8rem;font-style:italic">Narrative pane \u2014 reserved for CEL-78.</div>';
+
+  app.innerHTML = '<div id="structure-root" style="display:flex;flex-direction:column;height:calc(100vh - var(--nav-h, 52px))">'
+    + headerHtml
+    + '<div style="flex:1;display:flex;min-height:0">' + rosterHtml + radioHtml + '</div>'
+    + graphHtml
+    + narrativeHtml
+    + '</div>';
+
+  var filterInput = document.getElementById("structure-radio-filter");
+  if (filterInput) {
+    filterInput.addEventListener("input", function(ev) {
+      _structureState.filter = ev.target.value;
+      _structureRenderFrame();
+    });
+    // Preserve focus on re-render
+    if (_structureState._filterFocused) {
+      filterInput.focus();
+      filterInput.selectionStart = filterInput.selectionEnd = filterInput.value.length;
+    }
+    filterInput.addEventListener("focus", function() { _structureState._filterFocused = true; });
+    filterInput.addEventListener("blur", function() { _structureState._filterFocused = false; });
+  }
+}
+
+async function renderStructure() {
+  var app = document.getElementById("app");
+  if (!app) return;
+  if (!_structureState.data) {
+    app.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  }
+  try {
+    var results = await Promise.all([
+      api("/api/structure").catch(function(e) { return { _err: e }; }),
+      api("/api/structure/events?limit=500").catch(function(e) { return { _err: e }; })
+    ]);
+    var sResp = results[0];
+    var eResp = results[1];
+    if (sResp && !sResp._err) _structureState.data = sResp;
+    if (eResp && !eResp._err && eResp.events) _structureState.events = eResp.events;
+    _structureRenderFrame();
+  } catch (e) {
+    app.innerHTML = '<div style="padding:40px;color:var(--color-danger)">Failed to load structure: ' + esc(e.message) + '</div>';
+  }
+}
+
 // --- Routing ---
 async function route(hash) {
   var h = (hash || "/board").replace(/^#?\/?/, "/");
@@ -3708,6 +3865,7 @@ async function route(hash) {
   else if (view === "cube") await renderCube();
   else if (view === "cube2") await renderCubeV2Wrapper();
   else if (view === "web") await renderWeb();
+  else if (view === "structure") await renderStructure();
   else if (view === "task" && parts[1]) await renderDetail(parts[1]);
   else renderBoard();
 }
@@ -6457,7 +6615,22 @@ var AUTO_REFRESH_MS = 5000;
 function startAutoRefresh() {
   stopAutoRefresh();
   autoRefreshInterval = setInterval(async function() {
-    if (currentView !== "board" && currentView !== "list" && currentView !== "activity" && currentView !== "stats" && currentView !== "cube" && currentView !== "cube2" && currentView !== "web") return;
+    if (currentView !== "board" && currentView !== "list" && currentView !== "activity" && currentView !== "stats" && currentView !== "cube" && currentView !== "cube2" && currentView !== "web" && currentView !== "structure") return;
+
+    // Structure: fetch structure.json + events.jsonl tail, re-render frame.
+    if (currentView === "structure") {
+      try {
+        var sResults = await Promise.all([
+          api("/api/structure").catch(function() { return null; }),
+          api("/api/structure/events?limit=500").catch(function() { return null; })
+        ]);
+        if (currentView !== "structure") return;
+        if (sResults[0]) _structureState.data = sResults[0];
+        if (sResults[1] && sResults[1].events) _structureState.events = sResults[1].events;
+        _structureRenderFrame();
+      } catch (e) { /* server may be restarting */ }
+      return;
+    }
 
     // Cube: revision-based refresh (independent data path)
     if (currentView === "cube") {

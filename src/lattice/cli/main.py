@@ -396,6 +396,14 @@ def cli(ctx: click.Context) -> None:
     default=None,
     help="Done column display mode: all, recent (24h), or grouped (today/yesterday/previously).",
 )
+@click.option(
+    "--type",
+    "project_type",
+    type=click.Choice(["standard", "structure"], case_sensitive=False),
+    default=None,
+    help="Project type. 'standard' is a normal Lattice project. 'structure' enables "
+    "the Structure Overview tab for Cell 05 mission-control views.",
+)
 def init(
     target_path: str,
     actor: str | None,
@@ -414,6 +422,7 @@ def init(
     plan_review_mode: str | None,
     plan_approval: str | None,
     done_display: str | None,
+    project_type: str | None,
 ) -> None:
     """Initialize a new Lattice project."""
     root = Path(target_path)
@@ -624,6 +633,10 @@ def init(
             config["plan_approval"] = plan_approval
         if done_display:
             config["done_display"] = done_display
+        # Only persist project_type when explicitly non-default so existing
+        # standard projects serialize identically to before this field existed.
+        if project_type and project_type.lower() != "standard":
+            config["project_type"] = project_type.lower()
         config_content = serialize_config(config)
         atomic_write(lattice_dir / "config.json", config_content)
 
