@@ -689,7 +689,9 @@ class TestNextStepsHints:
         assert ns["latest_comment"] == "Blocked on credentials"
 
     def test_planned_no_hint_when_inline(self, invoke, initialized_root, fill_plan) -> None:
-        """When plan_review_mode is inline (default), planned produces no hint."""
+        """When plan_review_mode is inline, planned produces no hint."""
+        _set_config_field(initialized_root, "plan_review_mode", "inline")
+
         r = invoke("create", "Planned inline", "--actor", _ACTOR, "--json")
         task_id = json.loads(r.output)["data"]["id"]
         invoke("status", task_id, "in_planning", "--actor", _ACTOR)
