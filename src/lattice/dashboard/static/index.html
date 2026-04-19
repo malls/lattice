@@ -4710,7 +4710,7 @@ function applyListFilters() {
     var rowHeatCls = isHeatMapEnabled() ? " " + getHeatClass(t.last_status_changed_at) : "";
     var rowTier = isHeatMapEnabled() ? getHeatTier(t.last_status_changed_at) : null;
     var rowHeatBorder = (rowTier && rowTier.color) ? ' style="border-left:3px solid ' + rowTier.color + '"' : "";
-    html += '<tr class="' + rowHeatCls.trim() + '" style="cursor:pointer" onclick="openDetailPanel(\'' + esc(t.id) + '\')">';
+    html += '<tr class="list-row ' + rowHeatCls.trim() + '" style="cursor:pointer" data-task-id="' + esc(t.id) + '">';
     html += '<td class="id-cell"' + rowHeatBorder + ' title="' + esc(t.id) + '">' + (t.short_id ? '<span style="font-weight:600;color:var(--accent-primary)">' + esc(t.short_id) + '</span>' : esc(displayId)) + "</td>";
     html += "<td>" + esc(t.title || "Untitled") + (t.archived ? ' <span class="archived-badge">archived</span>' : "") + (t.comment_count ? ' <span style="color:var(--text-muted);font-size:.75rem" title="' + t.comment_count + ' comment' + (t.comment_count === 1 ? '' : 's') + '">\uD83D\uDCAC ' + t.comment_count + '</span>' : '') + "</td>";
     html += "<td>" + esc(t.status || "") + (t.has_active_session ? ' <span class="active-badge"><span class="active-dot"></span>Active</span>' : "") + "</td>";
@@ -4723,7 +4723,13 @@ function applyListFilters() {
     html += "</tr>";
   });
   html += "</tbody></table>";
-  document.getElementById("list-table").innerHTML = '<div style="overflow-x:auto">' + html + '</div>';
+  var listTable = document.getElementById("list-table");
+  listTable.innerHTML = '<div style="overflow-x:auto">' + html + '</div>';
+  listTable.querySelectorAll("tr.list-row").forEach(function(row) {
+    row.addEventListener("click", function() {
+      openDetailPanel(row.dataset.taskId);
+    });
+  });
 }
 
 // --- Detail View ---
@@ -6334,7 +6340,8 @@ document.addEventListener("click", function(e) {
   var detailPanel = document.getElementById("detail-panel");
   if (detailPanel && detailPanel.classList.contains("open") && _detailPanelTaskId &&
       !detailPanel.contains(e.target) &&
-      !e.target.closest(".task-card") && !e.target.closest(".list-row") &&
+      !e.target.closest(".card") && !e.target.closest(".list-row") &&
+      !e.target.closest(".done-compact-row") &&
       !e.target.closest(".settings-panel") && !e.target.closest("#settings-btn") &&
       !e.target.closest("#cv2-container") && !e.target.closest("#cube3d-container")) {
     closeDetailPanel();
