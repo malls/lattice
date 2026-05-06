@@ -85,8 +85,10 @@ def _archive_one(
         lifecycle_path = lattice_dir / "events" / "_lifecycle.jsonl"
         jsonl_append(lifecycle_path, serialize_event(event))
 
+        archive_tasks_dir = lattice_dir / "archive" / "tasks"
+        archive_tasks_dir.mkdir(parents=True, exist_ok=True)
         atomic_write(
-            lattice_dir / "archive" / "tasks" / f"{task_id}.json",
+            archive_tasks_dir / f"{task_id}.json",
             serialize_snapshot(updated_snapshot),
         )
 
@@ -94,16 +96,20 @@ def _archive_one(
         if snapshot_path.exists():
             snapshot_path.unlink()
 
+        archive_events_dir = lattice_dir / "archive" / "events"
+        archive_events_dir.mkdir(parents=True, exist_ok=True)
         shutil.move(
             str(event_path),
-            str(lattice_dir / "archive" / "events" / f"{task_id}.jsonl"),
+            str(archive_events_dir / f"{task_id}.jsonl"),
         )
 
         notes_path = lattice_dir / "notes" / f"{task_id}.md"
         if notes_path.exists():
+            archive_notes_dir = lattice_dir / "archive" / "notes"
+            archive_notes_dir.mkdir(parents=True, exist_ok=True)
             shutil.move(
                 str(notes_path),
-                str(lattice_dir / "archive" / "notes" / f"{task_id}.md"),
+                str(archive_notes_dir / f"{task_id}.md"),
             )
 
         plans_path = lattice_dir / "plans" / f"{task_id}.md"

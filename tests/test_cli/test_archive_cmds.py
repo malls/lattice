@@ -58,6 +58,26 @@ class TestArchive:
         ]
         assert len(archived_events) == 1
 
+    def test_archive_when_archive_dirs_missing(
+        self, create_task, invoke, initialized_root
+    ):
+        """Archive should self-heal when archive subdirs don't exist (older projects)."""
+        import shutil
+
+        task = create_task("Pre-archive-dirs project")
+        task_id = task["id"]
+
+        lattice = initialized_root / ".lattice"
+        archive_dir = lattice / "archive"
+        if archive_dir.exists():
+            shutil.rmtree(archive_dir)
+        assert not archive_dir.exists()
+
+        result = invoke("archive", task_id, "--actor", "human:test")
+        assert result.exit_code == 0, result.output
+        assert (lattice / "archive" / "tasks" / f"{task_id}.json").exists()
+        assert (lattice / "archive" / "events" / f"{task_id}.jsonl").exists()
+
     def test_archive_with_notes(self, create_task, invoke, initialized_root):
         """Notes file should be moved to archive/notes/ when present."""
         task = create_task("Notes test")
