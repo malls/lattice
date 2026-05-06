@@ -111,7 +111,9 @@ lattice doctor     # Data integrity check
 lattice archive PROJ-1 --actor agent:claude-cli
 ```
 
-Options for `create`: `--priority` (critical/high/medium/low/none), `--type` (task/bug/spike/chore), `--description "..."`, `--assign agent:claude-cli`
+Options for `create`: `--priority` (critical/high/medium/low/none), `--type` (task/bug/chore), `--description "..."`, `--assign agent:claude-cli`
+
+**No `epic` or `spike` types — just items of work with a dependency graph.** Lattice intentionally rejects umbrella/exploratory ticket types. Express multi-phase or umbrella work as a plain `task` with `subtask_of` links from its children. Express exploratory/investigation work as a plain `task` whose deliverable is a concrete artifact (plan doc, prototype, decision). The subtask + dependency graph (`subtask_of`, `blocks`, `depends_on`) gives you epic-shape and spike-shape without dedicated types. Every ticket is a chunk of work with a real output, not a bucket or a question.
 
 **Task description depth:** Match description detail to task ambiguity. Bug fixes and chores can be one-liners ("Add regex validation to frequency names"). Features and integration tasks should include: (1) what it does, (2) acceptance criteria, (3) architectural context, (4) what the user/operator experiences when done.
 

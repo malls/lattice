@@ -43,7 +43,18 @@ Replace `PROJ` with a short project code (e.g., `APP`, `API`, `WEB`). This creat
 lattice create "Fix the login bug" --actor agent:openclaw --priority high
 ```
 
-Options: `--priority` (critical/high/medium/low/none), `--type` (task/epic/bug/spike/chore), `--description "details"`, `--assign agent:openclaw`
+Options: `--priority` (critical/high/medium/low/none), `--type` (task/bug/chore), `--description "details"`, `--assign agent:openclaw`
+
+**No `epic` or `spike` types — just items of work with a dependency
+graph.** Lattice intentionally rejects umbrella/exploratory ticket
+types. Multi-phase or umbrella work is expressed by creating a plain
+`task` and linking children via `lattice link <child> subtask_of
+<parent>`. Exploratory or investigation work is expressed as a plain
+`task` whose deliverable is a concrete artifact (plan doc, prototype,
+decision). The subtask + dependency graph (`subtask_of`, `blocks`,
+`depends_on`) gives you epic-shape and spike-shape without dedicated
+types. Every ticket is a chunk of work with a real output, not a
+bucket or an open question.
 
 ### List tasks
 
