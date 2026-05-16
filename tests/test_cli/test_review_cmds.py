@@ -19,10 +19,18 @@ from lattice.storage.fs import LATTICE_DIR, ensure_lattice_dirs, atomic_write
 
 
 def _make_board(tmp_path: Path, config_overrides: dict | None = None) -> Path:
-    """Initialize a .lattice/ directory and return root."""
+    """Initialize a .lattice/ directory and return root.
+
+    Auto-fire of code-review/plan-review on status transitions (LAT-211) is
+    disabled by default so tests that just walk through statuses do not
+    actually fork a ``lattice code-review`` subprocess. Tests that exercise
+    the auto-fire path override the relevant key via ``config_overrides``.
+    """
     ensure_lattice_dirs(tmp_path)
     lattice_dir = tmp_path / LATTICE_DIR
     config = default_config()
+    config["auto_code_review_on_transition"] = False
+    config["auto_plan_review_on_transition"] = False
     if config_overrides:
         config.update(config_overrides)
     atomic_write(lattice_dir / "config.json", serialize_config(config))
@@ -460,6 +468,217 @@ class TestCodeReviewTriple:
 # ---------------------------------------------------------------------------
 # Tests: core/review.py unit tests
 # ---------------------------------------------------------------------------
+
+
+class TestReviewClaimAndDisplay:
+    """Coordination tests for the review_state claim path (LAT-211)."""
+
+    def test_review_status_displays_auto_fired_field(self, tmp_path: Path) -> None:
+        from lattice.core.review import write_review_state
+
+        root = _make_board(tmp_path)
+        runner = CliRunner()
+        task_id = _create_task(runner, root)
+        write_review_state(
+            root / LATTICE_DIR,
+            {
+                "task_id": task_id,
+                "mode": "triple",
+                "review_type": "code-review",
+                "started_at": "2026-05-06T00:00:00Z",
+                "started_by_pid": 4242,
+                "auto_fired": True,
+                "agents": [],
+            },
+        )
+        result = runner.invoke(
+            cli,
+            ["review-status", task_id],
+            env={"LATTICE_ROOT": str(root)},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert "auto_fired:" in result.output
+        assert "True" in result.output
+        assert "started_by_pid 4242" in result.output
+
+    def test_review_status_json_round_trips_new_fields(self, tmp_path: Path) -> None:
+        from lattice.core.review import write_review_state
+
+        root = _make_board(tmp_path)
+        runner = CliRunner()
+        task_id = _create_task(runner, root)
+        write_review_state(
+            root / LATTICE_DIR,
+            {
+                "task_id": task_id,
+                "mode": "single",
+                "review_type": "code-review",
+                "started_at": "2026-05-06T00:00:00Z",
+                "started_by_pid": 9999,
+                "auto_fired": False,
+                "agents": [],
+            },
+        )
+        result = runner.invoke(
+            cli,
+            ["review-status", task_id, "--json"],
+            env={"LATTICE_ROOT": str(root)},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)["data"]
+        assert data["auto_fired"] is False
+        assert data["started_by_pid"] == 9999
+
+    def test_code_review_refuses_when_live_other_pid_holds(self, tmp_path: Path) -> None:
+        import os
+
+        from lattice.core.review import write_review_state
+
+        ppid = os.getppid()
+        if ppid == os.getpid() or ppid <= 1:
+            import pytest
+
+            pytest.skip("Need a usable parent pid for this test.")
+
+        root = _make_board(tmp_path)
+        runner = CliRunner()
+        task_id = _create_task(runner, root)
+
+        # Seed a record held by an external live PID (test parent process).
+        write_review_state(
+            root / LATTICE_DIR,
+            {
+                "task_id": task_id,
+                "mode": "single",
+                "review_type": "code-review",
+                "started_at": "2026-05-06T00:00:00Z",
+                "started_by_pid": ppid,
+                "auto_fired": False,
+                "agents": [],
+            },
+        )
+
+        result = runner.invoke(
+            cli,
+            ["code-review", task_id, "--mode", "single", "--actor", "agent:test"],
+            env={"LATTICE_ROOT": str(root)},
+            catch_exceptions=False,
+        )
+        assert result.exit_code != 0
+        assert "already in flight" in result.output
+        assert f"pid {ppid}" in result.output
+
+    def test_inline_review_refuses_when_other_pid_holds(self, tmp_path: Path) -> None:
+        import os
+
+        from lattice.core.review import write_review_state
+
+        ppid = os.getppid()
+        if ppid == os.getpid() or ppid <= 1:
+            import pytest
+
+            pytest.skip("Need a usable parent pid for this test.")
+
+        root = _make_board(tmp_path, {"review_mode": "inline"})
+        runner = CliRunner()
+        task_id = _create_task(runner, root)
+        write_review_state(
+            root / LATTICE_DIR,
+            {
+                "task_id": task_id,
+                "mode": "single",
+                "review_type": "code-review",
+                "started_at": "2026-05-06T00:00:00Z",
+                "started_by_pid": ppid,
+                "auto_fired": False,
+                "agents": [],
+            },
+        )
+        result = runner.invoke(
+            cli,
+            ["code-review", task_id, "--actor", "agent:test"],
+            env={"LATTICE_ROOT": str(root)},
+            catch_exceptions=False,
+        )
+        assert result.exit_code != 0
+        assert "already in flight" in result.output
+
+    def test_code_review_with_triggered_by_adopts_parent_state(self, tmp_path: Path) -> None:
+        # Simulate the rare parent-still-alive edge: parent's pid is alive
+        # AND ``--triggered-by`` flags this child as the auto-fired adopter.
+        # The CLI body must overwrite started_by_pid → ours, leaving
+        # ``auto_fired=True``.  We only run up to the claim step (mocked
+        # ``resolve_diff`` & friends) to avoid spawning real agents.
+        import os
+
+        from lattice.core.review import read_review_state, write_review_state
+
+        ppid = os.getppid()
+        if ppid == os.getpid() or ppid <= 1:
+            import pytest
+
+            pytest.skip("Need a usable parent pid for this test.")
+
+        root = _make_board(tmp_path)
+        runner = CliRunner()
+        task_id = _create_task(runner, root)
+        # Give the task a minimal plan + diff context.
+        _write_plan(root, task_id, "# Test\n\nApproach: implement.\n")
+        write_review_state(
+            root / LATTICE_DIR,
+            {
+                "task_id": task_id,
+                "mode": "single",
+                "review_type": "code-review",
+                "started_at": "2026-05-06T00:00:00Z",
+                "started_by_pid": ppid,  # alive — would normally refuse
+                "auto_fired": True,
+                "agents": [],
+            },
+        )
+
+        with (
+            patch(
+                "lattice.cli.review_cmds.resolve_diff",
+                return_value=(True, "diff --git a/x.py b/x.py\n"),
+            ),
+            patch(
+                "lattice.cli.review_cmds.run_single_review",
+                return_value=(True, "ok", "PASS"),
+            ),
+            patch(
+                "lattice.cli.review_cmds._attach_review_artifact",
+                return_value="art_fake",
+            ),
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "code-review",
+                    task_id,
+                    "--mode",
+                    "single",
+                    "--actor",
+                    "agent:test",
+                    "--triggered-by",
+                    "ev_fake",
+                ],
+                env={"LATTICE_ROOT": str(root)},
+                catch_exceptions=False,
+            )
+        assert result.exit_code == 0, result.output
+        # Most importantly: the command did NOT exit with REVIEW_IN_FLIGHT.
+        assert "already in flight" not in result.output
+        # After the adoption path the on-disk record holds *our* PID
+        # (mocked ``run_single_review`` doesn't run ``clear_review_state``,
+        # so the adoption write is what we observe).  ``auto_fired`` stays
+        # True — the audit-trail signal is preserved through the handoff.
+        state_after = read_review_state(root / LATTICE_DIR, task_id)
+        assert state_after is not None
+        assert state_after["started_by_pid"] == os.getpid()
+        assert state_after["auto_fired"] is True
 
 
 class TestReviewState:
