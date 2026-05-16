@@ -13,7 +13,7 @@ from lattice.core.review import (
     DEFAULT_AGENT_TIMEOUT,
     FAILURE_THRESHOLD,
     _extract_actor_str,
-    _pid_alive,
+    pid_alive,
     claim_review_state,
     cleanup_temp_files,
     clear_review_state,
@@ -64,17 +64,17 @@ class TestReviewState:
 
 class TestPidAlive:
     def test_self_pid_is_alive(self) -> None:
-        assert _pid_alive(os.getpid()) is True
+        assert pid_alive(os.getpid()) is True
 
     def test_known_dead_pid_is_not_alive(self) -> None:
         # 2**31-1 is far above typical PID range; never live in practice.
-        assert _pid_alive(2**31 - 1) is False
+        assert pid_alive(2**31 - 1) is False
 
     def test_zero_pid_is_not_alive(self) -> None:
-        assert _pid_alive(0) is False
+        assert pid_alive(0) is False
 
     def test_negative_pid_is_not_alive(self) -> None:
-        assert _pid_alive(-1) is False
+        assert pid_alive(-1) is False
 
 
 # ---------------------------------------------------------------------------
@@ -307,3 +307,154 @@ class TestConfigTimeout:
 
     def test_default_agent_timeout_constant(self) -> None:
         assert DEFAULT_AGENT_TIMEOUT == 600
+
+
+# ---------------------------------------------------------------------------
+# Single-mode reviews must always be headless (LAT-218)
+# ---------------------------------------------------------------------------
+
+
+class TestSingleReviewBackend:
+    def test_single_review_is_always_headless(
+        self, lattice_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``run_single_review`` always passes a ``HeadlessBackend`` to ``spawn_one``.
+
+        Pre-LAT-218 the call site honored ``headless`` / ``backend_force``
+        params and could route to the c11 or terminal backend. Post-LAT-218
+        the params are gone and every call to ``run_single_review`` is
+        guaranteed headless — no surface, no window.
+        """
+        from lattice.core import review as review_mod
+        from lattice.core.agent_spawn import SpawnResult
+        from lattice.storage.agent_spawn import HeadlessBackend
+
+        captured: dict = {}
+
+        def _fake_spawn_one(request, **kwargs):
+            captured["kwargs"] = kwargs
+            return SpawnResult(
+                agent=request.agent,
+                success=True,
+                output_text="ok",
+                error="",
+                backend="headless",
+                duration_seconds=0.0,
+            )
+
+        monkeypatch.setattr(review_mod, "spawn_one", _fake_spawn_one)
+
+        success, _msg, _text = review_mod.run_single_review(
+            lattice_dir=lattice_dir,
+            task_id="t1",
+            review_type="code-review",
+            prompt_content="noop",
+            actor="agent:test",
+            timeout=5,
+        )
+
+        assert success is True
+        assert isinstance(captured["kwargs"].get("backend"), HeadlessBackend)
+
+
+# ---------------------------------------------------------------------------
+# Triple-mode reviews (LAT-218) — fire-and-forget c11 pane spawn
+# ---------------------------------------------------------------------------
+
+
+class TestTripleReviewSpawn:
+    def test_outside_c11_returns_clean_error(
+        self, lattice_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from lattice.core import review as review_mod
+
+        monkeypatch.setattr("lattice.cli.c11_bridge.c11_available", lambda: False)
+
+        ok, msg = review_mod.run_triple_review(
+            lattice_dir=lattice_dir,
+            task_id="t1",
+            review_type="code-review",
+            actor="agent:test",
+        )
+        assert ok is False
+        assert "triple mode requires c11" in msg
+
+    def test_spawns_pane_and_writes_state(
+        self, lattice_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from lattice.core import review as review_mod
+
+        monkeypatch.setattr("lattice.cli.c11_bridge.c11_available", lambda: True)
+
+        captured: dict = {}
+
+        def _fake_spawn(prompt_text, **kwargs):
+            captured["prompt"] = prompt_text
+            captured["kwargs"] = kwargs
+            return True, "surface:42"
+
+        monkeypatch.setattr(
+            "lattice.integrations.c11.spawn_one_in_current_workspace",
+            _fake_spawn,
+        )
+
+        ok, msg = review_mod.run_triple_review(
+            lattice_dir=lattice_dir,
+            task_id="task_01ABC",
+            review_type="code-review",
+            actor="agent:test",
+            short_id="LAT-218",
+            base="main",
+            worktree=tmp_path,
+        )
+        assert ok is True
+        assert "surface:42" in msg
+        # Pane prompt contains the trident slash command + routing table.
+        assert "/trident-code-review LAT-218" in captured["prompt"]
+        assert "pr_open" in captured["prompt"]
+        assert "needs_human" in captured["prompt"]
+        # review_state marker landed.
+        state = review_mod.read_review_state(lattice_dir, "task_01ABC")
+        assert state is not None
+        assert state["mode"] == "triple"
+        assert state["pane_ref"] == "surface:42"
+        assert state["started_by_actor"] == "agent:test"
+
+    def test_fire_and_forget_returns_quickly(
+        self, lattice_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import time as _time
+
+        from lattice.core import review as review_mod
+
+        monkeypatch.setattr("lattice.cli.c11_bridge.c11_available", lambda: True)
+        monkeypatch.setattr(
+            "lattice.integrations.c11.spawn_one_in_current_workspace",
+            lambda _p, **_k: (True, "surface:1"),
+        )
+        start = _time.monotonic()
+        review_mod.run_triple_review(
+            lattice_dir=lattice_dir,
+            task_id="t1",
+            review_type="plan-review",
+            actor="agent:test",
+            short_id="LAT-1",
+        )
+        elapsed = _time.monotonic() - start
+        assert elapsed < 1.0, f"run_triple_review should return immediately, took {elapsed:.3f}s"
+
+    def test_handoff_prompt_includes_routing_table(self) -> None:
+        from lattice.core.review import build_trident_handoff_prompt
+
+        prompt = build_trident_handoff_prompt(
+            "LAT-42",
+            "plan-review",
+            worktree=Path("/tmp/wt"),
+            base_branch="main",
+        )
+        assert "/trident-plan-review LAT-42" in prompt
+        assert "Review Verdict Routing" in prompt
+        # Routing table outcomes
+        for outcome in ("pr_open", "in_progress", "in_planning", "needs_human"):
+            assert outcome in prompt
+        assert "agent:trident-pane-LAT-42" in prompt

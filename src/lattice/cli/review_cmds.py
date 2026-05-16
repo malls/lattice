@@ -25,8 +25,8 @@ from lattice.cli.main import cli
 from lattice.core.review import (
     claim_review_state,
     cleanup_temp_files,
+    clear_review_state,
     read_review_state,
-    run_merge_agent,
     run_single_review,
     run_triple_review,
     resolve_diff,
@@ -131,25 +131,11 @@ def _claim_or_refuse(
     help="Review mode (overrides config). One of: inline, single, triple.",
 )
 @click.option("--base", default=None, help="Base git ref for diff (branch or commit).")
-@click.option(
-    "--headless",
-    is_flag=True,
-    default=False,
-    help="Force the headless spawn backend (subprocess.run; no panes/windows).",
-)
-@click.option(
-    "--backend",
-    type=click.Choice(["cmux", "terminal", "headless"]),
-    default=None,
-    help="Force a specific spawn backend. Raises if unavailable instead of falling through.",
-)
 @common_options
 def code_review(
     task_id: str,
     mode: str | None,
     base: str | None,
-    headless: bool,
-    backend: str | None,
     model: str | None,
     session: str | None,
     output_json: bool,
@@ -177,14 +163,10 @@ def code_review(
     if mode == "inline":
         existing = read_review_state(lattice_dir, task_id)
         if isinstance(existing, dict):
-            from lattice.core.review import _pid_alive
+            from lattice.core.review import pid_alive
 
             holder_pid = existing.get("started_by_pid")
-            if (
-                isinstance(holder_pid, int)
-                and holder_pid != os.getpid()
-                and _pid_alive(holder_pid)
-            ):
+            if isinstance(holder_pid, int) and holder_pid != os.getpid() and pid_alive(holder_pid):
                 output_error(
                     (
                         "A review is already in flight for this task "
@@ -262,24 +244,18 @@ def code_review(
             model=model,
             session=session,
             timeout=timeout,
-            headless=headless,
-            backend_force=backend,
         )
 
     elif mode == "triple":
-        _run_triple_and_store(
+        _spawn_triple_pane(
             lattice_dir=lattice_dir,
             task_id=task_id,
+            snapshot=snapshot,
             review_type="code-review",
-            prompt=prompt,
             actor=actor,
             is_json=is_json,
             quiet=quiet,
-            model=model,
-            session=session,
-            timeout=timeout,
-            headless=headless,
-            backend_force=backend,
+            base=base,
         )
 
 
@@ -296,24 +272,10 @@ def code_review(
     default=None,
     help="Review mode (overrides config). One of: inline, single, triple.",
 )
-@click.option(
-    "--headless",
-    is_flag=True,
-    default=False,
-    help="Force the headless spawn backend (subprocess.run; no panes/windows).",
-)
-@click.option(
-    "--backend",
-    type=click.Choice(["cmux", "terminal", "headless"]),
-    default=None,
-    help="Force a specific spawn backend. Raises if unavailable instead of falling through.",
-)
 @common_options
 def plan_review(
     task_id: str,
     mode: str | None,
-    headless: bool,
-    backend: str | None,
     model: str | None,
     session: str | None,
     output_json: bool,
@@ -348,14 +310,10 @@ def plan_review(
     if mode == "inline":
         existing = read_review_state(lattice_dir, task_id)
         if isinstance(existing, dict):
-            from lattice.core.review import _pid_alive
+            from lattice.core.review import pid_alive
 
             holder_pid = existing.get("started_by_pid")
-            if (
-                isinstance(holder_pid, int)
-                and holder_pid != os.getpid()
-                and _pid_alive(holder_pid)
-            ):
+            if isinstance(holder_pid, int) and holder_pid != os.getpid() and pid_alive(holder_pid):
                 output_error(
                     (
                         "A review is already in flight for this task "
@@ -416,29 +374,25 @@ def plan_review(
             model=model,
             session=session,
             timeout=timeout,
-            headless=headless,
-            backend_force=backend,
         )
         if art_id and plan_approval == "human":
             _move_to_needs_human(lattice_dir, task_id, actor, is_json)
 
     elif mode == "triple":
-        art_ids = _run_triple_and_store(
+        # The pane drives triage and status transitions itself; the CLI
+        # does not move the task to needs_human here even when
+        # plan_approval == "human".  The pane sees the trident artifact
+        # first-hand and is the right place to decide.
+        _spawn_triple_pane(
             lattice_dir=lattice_dir,
             task_id=task_id,
+            snapshot=snapshot,
             review_type="plan-review",
-            prompt=prompt,
             actor=actor,
             is_json=is_json,
             quiet=quiet,
-            model=model,
-            session=session,
-            timeout=timeout,
-            headless=headless,
-            backend_force=backend,
+            base=None,
         )
-        if art_ids and plan_approval == "human":
-            _move_to_needs_human(lattice_dir, task_id, actor, is_json)
 
 
 # ---------------------------------------------------------------------------
@@ -534,8 +488,6 @@ def _run_single_and_store(
     model: str | None,
     session: str | None,
     timeout: int = 600,
-    headless: bool = False,
-    backend_force: str | None = None,
 ) -> str | None:
     """Run single-agent review, store artifact, print result. Returns artifact ID or None."""
     click.echo(f"Running {review_type} (single mode)...")
@@ -547,8 +499,6 @@ def _run_single_and_store(
         prompt_content=prompt,
         actor=actor,
         timeout=timeout,
-        headless=headless,
-        backend_force=backend_force,
     )
 
     if not success:
@@ -582,97 +532,65 @@ def _run_single_and_store(
     return art_id
 
 
-def _run_triple_and_store(
+def _spawn_triple_pane(
     *,
     lattice_dir: Path,
     task_id: str,
+    snapshot: dict,
     review_type: str,
-    prompt: str,
     actor: str | dict,
     is_json: bool,
     quiet: bool,
-    model: str | None,
-    session: str | None,
-    timeout: int = 600,
-    headless: bool = False,
-    backend_force: str | None = None,
-) -> list[str]:
-    """Run triple-agent review, store artifacts, print result. Returns list of artifact IDs."""
-    click.echo(f"Running {review_type} (triple mode — spawning claude, codex, gemini)...")
+    base: str | None,
+) -> None:
+    """Spawn a c11 pane that runs the trident review. Fire-and-forget.
 
-    overall_success, message, results = run_triple_review(
+    Triple mode in LAT-218 onwards no longer runs three review agents in
+    the CLI — it splits one new pane in the caller's c11 workspace and
+    hands off to ``/trident-{code|plan}-review``. The pane owns trident,
+    artifact storage, triage, and the task-status advance.
+
+    On failure (notably: not running inside c11) this releases the
+    in-flight review claim that ``_claim_or_refuse`` made earlier, prints
+    a clear error, and exits non-zero.
+    """
+    short_id = snapshot.get("short_id") or task_id
+    success, message = run_triple_review(
         lattice_dir=lattice_dir,
         task_id=task_id,
         review_type=review_type,
-        prompt_content=prompt,
         actor=actor,
-        timeout=timeout,
-        headless=headless,
-        backend_force=backend_force,
+        base=base,
+        short_id=short_id,
+        worktree=lattice_dir.parent,
     )
 
-    artifact_ids: list[str] = []
-
-    # Store individual reviews
-    for agent, success, text in results:
-        if success:
-            art_id = _attach_review_artifact(
-                lattice_dir=lattice_dir,
-                task_id=task_id,
-                content=text,
-                title=f"{review_type} ({agent})",
-                role="review-individual",
-                actor=actor,
-                is_json=False,  # suppress per-artifact JSON noise
+    if not success:
+        # Release the parent claim so retries aren't blocked by a phantom record.
+        clear_review_state(lattice_dir, task_id)
+        if is_json:
+            click.echo(
+                json.dumps(
+                    {"ok": False, "error": {"code": "TRIPLE_SPAWN_FAILED", "message": message}},
+                    indent=2,
+                ),
+                err=True,
             )
-            if art_id:
-                artifact_ids.append(art_id)
-                click.echo(f"  Stored {agent} review as {art_id}.")
         else:
-            click.echo(f"  {agent} failed: {text}", err=True)
+            click.echo(message, err=True)
+        raise click.exceptions.Exit(code=1)
 
-    # Merge if at least one succeeded
-    if not overall_success:
-        click.echo("All agents failed. No merged review produced.", err=True)
-        cleanup_temp_files(task_id)
-        return artifact_ids
-
-    click.echo("Merging reviews...")
-    merge_success, merged_text = run_merge_agent(
-        lattice_dir=lattice_dir,
-        task_id=task_id,
-        reviews=results,
-        review_type=review_type,
-        headless=headless,
-        backend_force=backend_force,
-    )
-
-    if merge_success:
-        role = "review" if review_type == "code-review" else "plan-review"
-        merged_id = _attach_review_artifact(
-            lattice_dir=lattice_dir,
-            task_id=task_id,
-            content=merged_text,
-            title=f"{review_type} (merged)",
-            role=role,
-            actor=actor,
-            is_json=False,
+    if is_json:
+        click.echo(
+            json.dumps(
+                {"ok": True, "data": {"mode": "triple", "task_id": task_id, "message": message}},
+                indent=2,
+            )
         )
-        if merged_id:
-            artifact_ids.append(merged_id)
-            if is_json:
-                click.echo(
-                    json.dumps({"ok": True, "data": {"artifact_ids": artifact_ids}}, indent=2)
-                )
-            elif quiet:
-                click.echo(merged_id)
-            else:
-                click.echo(f"Merged review stored as {merged_id} (role={role}).")
+    elif quiet:
+        click.echo(message)
     else:
-        click.echo(f"Merge agent failed: {merged_text}", err=True)
-
-    cleanup_temp_files(task_id)
-    return artifact_ids
+        click.echo(message)
 
 
 def _attach_review_artifact(
