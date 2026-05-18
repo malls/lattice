@@ -70,3 +70,24 @@ LATTICE_ROOT=/absolute/path/to/.lattice <agent-command>
 ```
 
 Each sub-agent inherits the env var and operates against the shared Lattice state.
+
+## CLI worktree↔root bridge footguns (`code-review` and `plan-review`)
+
+LAT-219 added directory-walking auto-detection so most `lattice` calls route correctly from a worktree (read/write tasks, comments, events, plan files all land in the root repo's `.lattice/`). **Two commands still have known worktree↔root bridge bugs even with `LATTICE_ROOT` set.**
+
+### `lattice code-review` — empty-diff failure
+
+- **Symptom:** `lattice code-review <TICKET> --base <remote>/main` returns an empty diff or a vacuous artifact when run from a worktree, even with `LATTICE_ROOT=$PWD` set. The reviewer sees no changes and writes a useless review.
+- **Why:** The diff-resolution path doesn't fully honor the worktree's HEAD; it falls back to the primary checkout's refs in some configurations.
+- **Cheap mitigation:** Always pass `--base <remote>/main` (NEVER bare `main` — they look identical but the local ref may be behind the remote). Set `export LATTICE_ROOT=$PWD` at session start.
+- **Fallback when cheap mitigation fails:** Spawn an own-reviewer sub-agent on the delegator's own pane that computes the diff itself (`git log <remote>/main..HEAD --stat` + per-file `git diff`), writes a custom artifact at `notes/.tmp/<TICKET>-codereview-custom.md`, and attaches it via `lattice attach <TICKET> --type note --role review --inline "<markdown>" --actor agent:<id>-reviewer`. The `--role review` attachment satisfies the `done` completion policy — the orchestrator can't tell the difference from a CLI-generated review. See the `lattice-orchestrator` skill's `references/orchestrator.md` `## Own-reviewer-tab fallback` section for the full pattern.
+- **Observed:** Every Wave 2 delegator on the EC v1.2.1 run hit this independently and converged on the fallback.
+
+### `lattice plan-review` — wrong-file silent read
+
+- **Symptom:** `lattice plan-review <TICKET> --headless` silently reads the empty 30-line plan scaffold (from `.lattice/plans/<task_id>.md` in the wrong location) instead of the authored plan, and reports a vacuous FAIL with no findings against the actual plan content.
+- **Why:** LAT-219 routes plan-file *writes* to the root repo but the plan-review *read path* doesn't always resolve to the same location, depending on how the plan was authored (lattice CLI vs direct file write).
+- **Cheap mitigation:** Before `lattice plan-review`, verify `$REPO_ROOT/.lattice/plans/<task_id>.md` has the authored content via `wc -l`. If it's the 30-line scaffold but the worktree has the real plan, copy worktree→root: `cp <worktree>/.lattice/plans/<task_id>.md $REPO_ROOT/.lattice/plans/`.
+- **Observed:** EC v1.2.1 run, PSY-47 delegator. First plan-review pass returned vacuous FAIL; worked around by the copy. File a Lattice ticket if you hit this — it's an upstream defect that should follow LAT-219's fix to the same conclusion.
+
+Both bugs are upstream defects in Lattice, not workflow issues. Document a hit in your run's closeout audit and consider filing a Lattice ticket so the maintainer can apply the LAT-219 fix to the review path.
