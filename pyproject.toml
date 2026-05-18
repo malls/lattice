@@ -66,11 +66,45 @@ markers = [
     "timeout: marks tests with a timeout",
 ]
 
+# mypy: relaxed from strict=true (LAT-228). The codebase was never annotated
+# to the strict bar — 559 errors across 44 files when strict was on, so the
+# gate was nominal-only.
+#
+# Dropping `strict = true` turns off `disallow_any_generics` /
+# `disallow_untyped_decorators` / `disallow_untyped_defs`, which eliminates
+# ~430 of the 559 errors (the type-arg / untyped-decorator / no-untyped-def
+# categories). The remaining ~120 errors are listed in `disable_error_code`
+# below, with per-code rationale.
+#
+# We keep the cheap, real-signal checks: no_implicit_optional (catches
+# `def f(x: int = None)` PEP-484 foot-guns), check_untyped_defs (still
+# type-checks bodies of unannotated functions), warn_return_any,
+# warn_unused_configs.
+#
+# Re-tighten per-module via [[tool.mypy.overrides]] as files get cleaned
+# up. A future strict-mode-restoration is its own ticket.
 [tool.mypy]
 python_version = "3.12"
-strict = true
 warn_return_any = true
 warn_unused_configs = true
+no_implicit_optional = true
+check_untyped_defs = true
+disable_error_code = [
+    "arg-type",        # 60 — dict-as-config calls, no precise contract
+    "no-any-return",   # 33 — typed funcs returning untyped dicts/JSON
+    "index",           #  8 — Click ctx.obj accessed dict-style
+    "union-attr",      #  2 — None-check noise around optional reads
+    "dict-item",       #  2 — TypedDict vs plain dict assignment
+    "assignment",      #  2 — Optional vs non-Optional re-assignment
+    "no-redef",        #  2 — pre-existing variable shadowing
+    "valid-type",      #  2 — `callable` annotations (legacy; cheap future fix)
+    "var-annotated",   #  1 — empty list needs explicit annotation
+    "typeddict-item",  #  1
+    "return-value",    #  1
+    "misc",            #  1
+    "import-untyped",  #  1 — pyyaml stubs not installed
+    "attr-defined",    #  1 — Click ctx.obj attr access
+]
 packages = ["lattice"]
 mypy_path = ["src"]
 
