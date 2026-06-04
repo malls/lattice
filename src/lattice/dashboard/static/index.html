@@ -223,7 +223,10 @@ a:hover{text-decoration:underline}
 .active-badge .active-dot{width:0.375rem;height:0.375rem}
 
 /* needs_human flag (orthogonal to status) */
-.needs-human-badge{display:inline-flex;align-items:center;gap:0.25rem;padding:0.0625rem 0.4375rem;border-radius:10px;font-size:.7rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;background:rgba(245,158,11,.18);color:#f59e0b;border:1px solid rgba(245,158,11,.45);white-space:nowrap;cursor:help}
+/* em-based sizing so the badge scales with --card-font-size like every other card badge */
+.needs-human-badge{display:inline-flex;align-items:center;gap:0.25em;padding:0.0625em 0.4375em;border-radius:10px;font-size:.75em;font-weight:700;letter-spacing:.02em;text-transform:uppercase;background:rgba(245,158,11,.18);color:#f59e0b;border:1px solid rgba(245,158,11,.45);white-space:nowrap;cursor:help}
+/* full-card ring for flagged cards — outline (not box-shadow) so .card:hover and theme shadows can't mask it */
+.card.needs-human{outline:2px solid rgba(245,158,11,.85);outline-offset:1px}
 
 /* Heat indicator (based on last_status_changed_at) */
 /* Board cards: heat bar is rendered inline via JS; these classes add positioning context */
@@ -4406,7 +4409,7 @@ function renderBoardCard(t) {
   var tier = heatEnabled ? getHeatTier(t.last_status_changed_at) : null;
   var ratio = heatEnabled ? getHeatBarRatio(t.last_status_changed_at) : 0;
 
-  var html = '<div class="card' + (heatCls ? " " + heatCls : "") + '" draggable="true" data-task-id="' + esc(t.id) + '" data-task-status="' + esc(t.status || "") + '"';
+  var html = '<div class="card' + (heatCls ? " " + heatCls : "") + (t.needs_human ? " needs-human" : "") + '" draggable="true" data-task-id="' + esc(t.id) + '" data-task-status="' + esc(t.status || "") + '"';
   if (t.last_status_changed_at) html += ' data-heat-ts="' + esc(t.last_status_changed_at) + '"';
   html += ' ondragstart="window._boardDragStart(event)" ondragend="window._boardDragEnd(event)">';
 
