@@ -228,6 +228,9 @@ def attach(
             guessed_type, _ = mimetypes.guess_type(src_path.name)
             content_type = guessed_type
             size_bytes = src_path.stat().st_size
+            # payload/ is scaffolded at init but empty dirs aren't git-tracked,
+            # so cloned installs may lack it (LAT-239).
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(str(src_path), str(dest_path))
 
         # Build the event first so we can use its timestamp for the artifact

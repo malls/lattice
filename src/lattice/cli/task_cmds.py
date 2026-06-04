@@ -1779,6 +1779,9 @@ def complete_cmd(
     try:
         payload_file = f"{art_id}.md"
         dest_path = lattice_dir / "artifacts" / "payload" / payload_file
+        # payload/ is scaffolded at init but empty dirs aren't git-tracked,
+        # so cloned installs may lack it (LAT-239).
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(tmp_path), str(dest_path))
     finally:
         tmp_path.unlink(missing_ok=True)

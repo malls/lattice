@@ -86,6 +86,28 @@ class TestAttachFile:
         assert payload_path.exists()
         assert payload_path.read_text() == "col1,col2\na,b\n"
 
+    def test_payload_dir_missing_is_recreated(
+        self, invoke, initialized_root, tmp_path
+    ) -> None:
+        """Regression (LAT-239): payload/ is scaffolded at init but empty dirs
+        aren't git-tracked, so cloned installs may lack it. Attach must
+        recreate it rather than crash with FileNotFoundError."""
+        r = invoke("create", "Task", "--actor", _ACTOR, "--json")
+        task_id = json.loads(r.output)["data"]["id"]
+
+        lattice_dir = initialized_root / LATTICE_DIR
+        payload_dir = lattice_dir / "artifacts" / "payload"
+        payload_dir.rmdir()
+        assert not payload_dir.exists()
+
+        src_file = tmp_path / "notes.txt"
+        src_file.write_text("some notes")
+
+        result = invoke("attach", task_id, str(src_file), "--actor", _ACTOR, "--json")
+        assert result.exit_code == 0, result.output
+        art_id = json.loads(result.output)["data"]["id"]
+        assert (payload_dir / f"{art_id}.txt").read_text() == "some notes"
+
     def test_event_appended(self, invoke, initialized_root, tmp_path) -> None:
         r = invoke("create", "Task", "--actor", _ACTOR, "--json")
         task_id = json.loads(r.output)["data"]["id"]
