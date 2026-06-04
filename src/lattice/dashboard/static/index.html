@@ -224,7 +224,7 @@ a:hover{text-decoration:underline}
 
 /* needs_human flag (orthogonal to status) */
 /* em-based sizing so the badge scales with --card-font-size like every other card badge */
-.needs-human-badge{display:inline-flex;align-items:center;gap:0.25em;padding:0.0625em 0.4375em;border-radius:10px;font-size:.75em;font-weight:700;letter-spacing:.02em;text-transform:uppercase;background:rgba(245,158,11,.18);color:#f59e0b;border:1px solid rgba(245,158,11,.45);white-space:nowrap;cursor:help}
+.needs-human-badge{display:inline-block;vertical-align:middle;max-width:100%;overflow:hidden;text-overflow:ellipsis;padding:0.0625em 0.4375em;border-radius:10px;font-size:.75em;font-weight:700;letter-spacing:.02em;text-transform:uppercase;background:rgba(245,158,11,.18);color:#f59e0b;border:1px solid rgba(245,158,11,.45);white-space:nowrap;cursor:help}
 /* full-card ring for flagged cards — outline (not box-shadow) so .card:hover and theme shadows can't mask it */
 .card.needs-human{outline:2px solid rgba(245,158,11,.85);outline-offset:1px}
 
