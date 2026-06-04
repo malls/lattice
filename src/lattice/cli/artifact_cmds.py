@@ -30,7 +30,7 @@ from lattice.core.artifacts import (
 from lattice.core.events import create_event
 from lattice.core.ids import generate_artifact_id, validate_id
 from lattice.core.tasks import apply_event_to_snapshot
-from lattice.storage.fs import atomic_write
+from lattice.storage.fs import atomic_write, ensure_artifact_dirs
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +178,10 @@ def attach(
         else:
             payload_file = None
 
+        # meta/ and payload/ are scaffolded at init but empty dirs aren't
+        # git-tracked, so cloned installs may lack them (LAT-239).
+        ensure_artifact_dirs(lattice_dir)
+
         # Idempotency check: if --id provided and metadata already exists
         # (must happen BEFORE file copy to avoid orphaned payloads on conflict)
         meta_path = lattice_dir / "artifacts" / "meta" / f"{art_id}.json"
@@ -228,9 +232,6 @@ def attach(
             guessed_type, _ = mimetypes.guess_type(src_path.name)
             content_type = guessed_type
             size_bytes = src_path.stat().st_size
-            # payload/ is scaffolded at init but empty dirs aren't git-tracked,
-            # so cloned installs may lack it (LAT-239).
-            dest_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(str(src_path), str(dest_path))
 
         # Build the event first so we can use its timestamp for the artifact

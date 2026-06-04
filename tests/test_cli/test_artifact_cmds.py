@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import glob
 import json
+import shutil
 import tempfile
 
 import pytest
@@ -95,10 +96,12 @@ class TestAttachFile:
         r = invoke("create", "Task", "--actor", _ACTOR, "--json")
         task_id = json.loads(r.output)["data"]["id"]
 
+        # Simulate a fresh clone: artifacts/ (meta + payload, both empty)
+        # is absent entirely because git doesn't track empty directories.
         lattice_dir = initialized_root / LATTICE_DIR
-        payload_dir = lattice_dir / "artifacts" / "payload"
-        payload_dir.rmdir()
-        assert not payload_dir.exists()
+        artifacts_dir = lattice_dir / "artifacts"
+        shutil.rmtree(artifacts_dir)
+        assert not artifacts_dir.exists()
 
         src_file = tmp_path / "notes.txt"
         src_file.write_text("some notes")
@@ -106,7 +109,8 @@ class TestAttachFile:
         result = invoke("attach", task_id, str(src_file), "--actor", _ACTOR, "--json")
         assert result.exit_code == 0, result.output
         art_id = json.loads(result.output)["data"]["id"]
-        assert (payload_dir / f"{art_id}.txt").read_text() == "some notes"
+        assert (artifacts_dir / "payload" / f"{art_id}.txt").read_text() == "some notes"
+        assert (artifacts_dir / "meta" / f"{art_id}.json").exists()
 
     def test_event_appended(self, invoke, initialized_root, tmp_path) -> None:
         r = invoke("create", "Task", "--actor", _ACTOR, "--json")

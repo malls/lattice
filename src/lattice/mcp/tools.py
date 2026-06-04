@@ -47,7 +47,12 @@ from lattice.core.ids import (
 from lattice.core.relationships import RELATIONSHIP_TYPES, validate_relationship_type
 from lattice.core.tasks import apply_event_to_snapshot, serialize_snapshot
 from lattice.mcp.server import mcp
-from lattice.storage.fs import atomic_write, find_root, jsonl_append
+from lattice.storage.fs import (
+    atomic_write,
+    ensure_artifact_dirs,
+    find_root,
+    jsonl_append,
+)
 from lattice.storage.hooks import execute_hooks
 from lattice.storage.locks import multi_lock
 from lattice.storage.operations import scaffold_plan, write_task_event
@@ -631,6 +636,10 @@ def lattice_attach(
     if title is None:
         title = source if is_url else Path(source).name
 
+    # meta/ and payload/ are scaffolded at init but empty dirs aren't
+    # git-tracked, so cloned installs may lack them (LAT-239).
+    ensure_artifact_dirs(lattice_dir)
+
     # File handling
     content_type: str | None = None
     size_bytes: int | None = None
@@ -644,9 +653,6 @@ def lattice_attach(
         if not src_path.is_file():
             raise ValueError(f"Source file not found: '{source}'.")
         dest_path = lattice_dir / "artifacts" / "payload" / f"{art_id}{src_path.suffix}"
-        # payload/ is scaffolded at init but empty dirs aren't git-tracked,
-        # so cloned installs may lack it (LAT-239).
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(src_path), str(dest_path))
         guessed_type, _ = mimetypes.guess_type(src_path.name)
         content_type = guessed_type

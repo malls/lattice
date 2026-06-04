@@ -1629,7 +1629,7 @@ def complete_cmd(
         validate_transition,
     )
     from lattice.core.ids import generate_artifact_id
-    from lattice.storage.fs import atomic_write
+    from lattice.storage.fs import atomic_write, ensure_artifact_dirs
 
     is_json = output_json
 
@@ -1776,12 +1776,12 @@ def complete_cmd(
     tmp.close()
     tmp_path = Path(tmp.name)
 
+    # meta/ and payload/ are scaffolded at init but empty dirs aren't
+    # git-tracked, so cloned installs may lack them (LAT-239).
+    ensure_artifact_dirs(lattice_dir)
     try:
         payload_file = f"{art_id}.md"
         dest_path = lattice_dir / "artifacts" / "payload" / payload_file
-        # payload/ is scaffolded at init but empty dirs aren't git-tracked,
-        # so cloned installs may lack it (LAT-239).
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(tmp_path), str(dest_path))
     finally:
         tmp_path.unlink(missing_ok=True)

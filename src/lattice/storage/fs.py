@@ -64,6 +64,17 @@ def atomic_write(path: Path, content: str | bytes) -> None:
         raise
 
 
+def ensure_artifact_dirs(lattice_dir: Path) -> None:
+    """Create artifacts/meta and artifacts/payload under an existing .lattice/.
+
+    Both are scaffolded at init, but git doesn't track empty directories, so
+    cloned installs of projects with no stored artifacts lack them (LAT-239).
+    Call before any artifact payload/metadata write.
+    """
+    for subdir in ("artifacts/meta", "artifacts/payload"):
+        (lattice_dir / subdir).mkdir(parents=True, exist_ok=True)
+
+
 def ensure_lattice_dirs(root: Path) -> None:
     """Create the full .lattice/ directory structure under root.
 
