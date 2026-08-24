@@ -1364,6 +1364,28 @@ select.form-control{cursor:pointer}
 .tag-overflow{opacity:.7}
 .card-meta .tag-badge{max-width:8rem;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:middle;cursor:pointer}
 .card-meta .tag-badge:hover{outline:1px solid var(--accent-primary)}
+/* Actor chips (creator → assignee pair on cards, assignee cell in list).
+   Em-based so they scale with --card-font-size like the other card badges.
+   Dot color comes from the inline --actor-hue custom property; light-ground
+   themes darken the dot via --actor-dot-l for contrast. Dot shape encodes
+   kind: circle = human, square = agent (and unknown), diamond = team. */
+.actor-pair{display:inline-flex;align-items:center;gap:.3em;min-width:0;vertical-align:middle}
+.actor-chip{display:inline-flex;align-items:center;gap:.3em;max-width:110px;min-width:0;padding:.0625em .4em;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-raised);color:var(--text-secondary);font-size:.75em;cursor:pointer;vertical-align:middle}
+.actor-chip:hover{outline:1px solid var(--accent-primary)}
+.actor-chip-ghost{border-style:dashed;background:transparent;opacity:.65}
+.actor-chip-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.actor-dot{flex-shrink:0;width:.6em;height:.6em;background:hsl(var(--actor-hue,0) 65% var(--actor-dot-l,60%))}
+.actor-dot-human{border-radius:50%}
+.actor-dot-agent,.actor-dot-other{border-radius:1px}
+.actor-dot-team{width:.55em;height:.55em;border-radius:1px;transform:rotate(45deg)}
+.actor-arrow{color:var(--text-muted);font-size:.75em;flex-shrink:0}
+.actor-unassigned{color:var(--text-muted);font-style:italic;font-size:.75em}
+[data-theme="linear"]{--actor-dot-l:42%}
+/* Clear-all affordances: text button in the drawer header, ✕ on the nav count */
+.filter-clear-all{background:none;border:none;color:var(--accent-primary);font-size:.8rem;cursor:pointer;padding:0 .25rem;white-space:nowrap}
+.filter-clear-all:hover{text-decoration:underline}
+.filters-clear-x{margin-left:.35em;opacity:.7;cursor:pointer}
+.filters-clear-x:hover{opacity:1;color:var(--accent-primary)}
 #filters-btn[aria-pressed="true"]{background:var(--accent-primary);color:var(--text-on-accent);border-color:var(--accent-primary)}
 .stats-tag-row{cursor:pointer}
 .stats-tag-row:hover{background:var(--surface-hover)}
@@ -1434,13 +1456,22 @@ select.form-control{cursor:pointer}
 <div class="filter-panel" id="filter-panel" role="dialog" aria-label="Filters">
   <div class="filter-panel-header">
     <h2 id="filter-panel-title">Filters</h2>
-    <button class="filter-panel-close" id="filter-panel-close" aria-label="Close">&times;</button>
+    <div style="display:flex;align-items:center;gap:.5rem">
+      <button type="button" class="filter-clear-all" id="filter-clear-all" style="display:none">Clear all</button>
+      <button class="filter-panel-close" id="filter-panel-close" aria-label="Close">&times;</button>
+    </div>
   </div>
   <div class="filter-panel-body" id="filter-panel-body">
     <div class="filter-panel-group" data-group="filters">
       <div class="filter-panel-group-title" data-group-key="filters">Filters</div>
       <div class="filter-panel-section" id="filter-section-tag">
         <!-- Populated by renderFilterPanel(). Hidden when no tasks have tags. -->
+      </div>
+      <div class="filter-panel-section" id="filter-section-assignee">
+        <!-- Populated by renderFilterPanel(). Hidden when no tasks have assignees. -->
+      </div>
+      <div class="filter-panel-section" id="filter-section-creator">
+        <!-- Populated by renderFilterPanel(). Hidden when no tasks have creators. -->
       </div>
     </div>
   </div>
@@ -1577,6 +1608,9 @@ select.form-control{cursor:pointer}
 <!-- Pure lane sort/group logic (see lane-logic.js). Loaded WITHOUT defer so its
      definitions are global before the main IIFE below runs and calls into them. -->
 <script src="/static/lane-logic.js"></script>
+<!-- Pure actor identity logic (see actor-logic.js). Loaded WITHOUT defer so its
+     definitions are global before the main IIFE below runs and calls into them. -->
+<script src="/static/actor-logic.js"></script>
 <script>
 (function(){
 "use strict";
@@ -1734,6 +1768,15 @@ var VOICES = {
     "filter.panel.title": "Filters",
     "filter.group.filters": "Filters",
     "filter.tag.all": "All tags",
+    "filter.assignee.label": "Assigned to",
+    "filter.creator.label": "Created by",
+    "filter.actor.any": "Anyone",
+    "filter.assignee.unassigned": "Unassigned",
+    "filter.clear_all": "Clear all",
+    "filter.group.humans": "Humans",
+    "filter.group.agents": "Agents",
+    "filter.group.teams": "Teams",
+    "filter.group.other": "Other",
     "section.custom_fields": "Custom Fields",
     "section.relationships": "Relationships",
     "section.artifacts": "Artifacts",
@@ -1887,6 +1930,15 @@ var VOICES = {
     "filter.panel.title": "Filters",
     "filter.group.filters": "Filters",
     "filter.tag.all": "All tags",
+    "filter.assignee.label": "Assigned to",
+    "filter.creator.label": "Created by",
+    "filter.actor.any": "Anyone",
+    "filter.assignee.unassigned": "Unassigned",
+    "filter.clear_all": "Clear all",
+    "filter.group.humans": "Humans",
+    "filter.group.agents": "Agents",
+    "filter.group.teams": "Teams",
+    "filter.group.other": "Other",
     "section.custom_fields": "Custom Fields",
     "section.relationships": "Relationships",
     "section.artifacts": "Artifacts",
@@ -2037,6 +2089,15 @@ var VOICES = {
     "filter.panel.title": "Filtros",
     "filter.group.filters": "Filtros",
     "filter.tag.all": "Todas las etiquetas",
+    "filter.assignee.label": "Asignado a",
+    "filter.creator.label": "Creado por",
+    "filter.actor.any": "Cualquiera",
+    "filter.assignee.unassigned": "Sin asignar",
+    "filter.clear_all": "Limpiar todo",
+    "filter.group.humans": "Humanos",
+    "filter.group.agents": "Agentes",
+    "filter.group.teams": "Equipos",
+    "filter.group.other": "Otros",
     "section.custom_fields": "Campos Personalizados",
     "section.relationships": "Relaciones",
     "section.artifacts": "Artefactos",
@@ -2126,6 +2187,10 @@ var draggedTaskId = null;
 var draggedFromStatus = null;
 var boardGraphLinks = [];
 var activeTagFilter = null;
+// Assignee/creator filters hold canonical actor keys (see actor-logic.js), or
+// ACTOR_UNASSIGNED (assignee only), or null. Mirrors activeTagFilter.
+var activeAssigneeFilter = null;
+var activeCreatorFilter = null;
 
 // --- Cube (3D view) state ---
 // Cube 3D state is managed internally by cube3d.js
@@ -2239,6 +2304,8 @@ async function init() {
     boardGraphLinks = (results[2] && results[2].links) || [];
     var initSp = new URLSearchParams(location.search);
     activeTagFilter = initSp.get("tag") || null;
+    activeAssigneeFilter = initSp.get("assigned") || null;
+    activeCreatorFilter = initSp.get("created") || null;
     // Load voice preference
     var dc = (config && config.dashboard) || {};
     if (dc.voice && VOICES[dc.voice]) {
@@ -2766,7 +2833,7 @@ function drawWebNode(node, ctx, globalScale) {
       lines.push({ text: sid, bold: true, color: "rgba(255,255,255,1)" });
       if (node.title) lines.push({ text: node.title, bold: false, color: "rgba(255,255,255,0.85)", maxLines: 4 });
       lines.push({ text: statusLabel, bold: false, color: color });
-      if (node.assigned_to) lines.push({ text: "\ud83d\udc64 " + node.assigned_to, bold: false, color: "rgba(200,200,255,0.7)" });
+      if (node.assigned_to) lines.push({ text: "\ud83d\udc64 " + actorTooltip(node.assigned_to), bold: false, color: "rgba(200,200,255,0.7)" });
       if (tier === "hub" && node.type) lines.push({ text: "\ud83c\udfaf " + node.type, bold: false, color: "rgba(255,255,255,0.5)" });
       if (node.branches && node.branches.length > 0) {
         lines.push({ text: "\u2514 " + node.branches[0], bold: false, color: "rgba(180,220,255,0.6)" });
@@ -2864,7 +2931,7 @@ function buildWebTooltipHTML(node) {
     html += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:2px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + esc(getLaneColor(node.status)) + '"></span><span style="color:var(--text-muted);font-size:11px;min-width:50px">Status</span><span>' + esc(node.status) + '</span></div>';
   }
   if (node.assigned_to) {
-    html += '<div style="display:flex;gap:6px;margin-bottom:2px"><span style="color:var(--text-muted);font-size:11px;min-width:50px">Assignee</span><span>' + esc(node.assigned_to) + '</span></div>';
+    html += '<div style="display:flex;gap:6px;margin-bottom:2px"><span style="color:var(--text-muted);font-size:11px;min-width:50px">Assignee</span><span>' + esc(actorTooltip(node.assigned_to)) + '</span></div>';
   }
   // Activity indicators
   var act = node.activityState;
@@ -3264,8 +3331,8 @@ function openWebDetailPane(taskId) {
 
     // Fields
     var fields = [
-      ["Assigned", task.assigned_to],
-      ["Created by", task.created_by],
+      ["Assigned", actorTooltip(task.assigned_to)],
+      ["Created by", actorTooltip(task.created_by)],
       ["Created", task.created_at],
       ["Updated", task.updated_at]
     ];
@@ -3420,30 +3487,115 @@ function toggleFilterPanel() {
   if (panel && panel.classList.contains("open")) closeFilterPanel(); else openFilterPanel();
 }
 
+function activeFilterCount() {
+  var n = 0;
+  if (activeTagFilter) n++;
+  if (activeAssigneeFilter) n++;
+  if (activeCreatorFilter) n++;
+  return n;
+}
+
+// Shared predicate — the three filters AND together. Applied by both
+// renderBoard() and applyListFilters() so board and list stay consistent.
+function taskMatchesActiveFilters(task) {
+  if (activeTagFilter && (!task.tags || task.tags.indexOf(activeTagFilter) === -1)) return false;
+  if (!actorMatchesFilter(task.assigned_to, activeAssigneeFilter)) return false;
+  if (!actorMatchesFilter(task.created_by, activeCreatorFilter)) return false;
+  return true;
+}
+
 function updateFiltersBtnAffordance() {
   var btn = document.getElementById("filters-btn");
   var lbl = document.getElementById("filters-btn-label");
   if (!btn || !lbl) return;
-  btn.setAttribute("aria-pressed", activeTagFilter ? "true" : "false");
+  var count = activeFilterCount();
+  btn.setAttribute("aria-pressed", count > 0 ? "true" : "false");
   var base = t("nav.filters");
-  lbl.textContent = activeTagFilter ? base + " · 1" : base;
+  lbl.textContent = count > 0 ? base + " · " + count : base;
+  // ✕ affixed to the count — clears every filter without opening the drawer.
+  var x = document.getElementById("filters-clear-x");
+  if (count > 0) {
+    if (!x) {
+      x = document.createElement("span");
+      x.id = "filters-clear-x";
+      x.className = "filters-clear-x";
+      x.textContent = "✕";
+      x.setAttribute("role", "button");
+      x.addEventListener("click", function(e) {
+        e.stopPropagation(); // must not toggle the drawer
+        clearAllFilters();
+      });
+      lbl.parentNode.insertBefore(x, lbl.nextSibling);
+    }
+    x.title = t("filter.clear_all");
+    x.setAttribute("aria-label", t("filter.clear_all"));
+  } else if (x) {
+    x.remove();
+  }
+  // Drawer-header "Clear all" — rendered only when ≥1 filter is active.
+  var clearBtn = document.getElementById("filter-clear-all");
+  if (clearBtn) {
+    clearBtn.textContent = t("filter.clear_all");
+    clearBtn.style.display = count > 0 ? "" : "none";
+  }
+}
+
+function _syncFilterParam(param, value) {
+  var sp = new URLSearchParams(location.search);
+  if (value) sp.set(param, value); else sp.delete(param);
+  var qs = sp.toString();
+  history.replaceState(null, "", location.pathname + (qs ? "?" + qs : "") + location.hash);
+}
+
+function _rerenderFilteredViews() {
+  if (currentView === "board") renderBoard();
+  else if (currentView === "list") applyListFilters();
 }
 
 function setTagFilter(tagOrNull) {
   activeTagFilter = tagOrNull || null;
-  var sp = new URLSearchParams(location.search);
-  if (activeTagFilter) sp.set("tag", activeTagFilter); else sp.delete("tag");
-  var qs = sp.toString();
-  var newUrl = location.pathname + (qs ? "?" + qs : "") + location.hash;
-  history.replaceState(null, "", newUrl);
+  _syncFilterParam("tag", activeTagFilter);
   updateFiltersBtnAffordance();
-  if (currentView === "board") renderBoard();
-  else if (currentView === "list") applyListFilters();
+  _rerenderFilteredViews();
   var sel = document.getElementById("filter-tag-select");
   if (sel) sel.value = activeTagFilter || "";
 }
 
+// field: "assignee" | "creator". Value is a canonical actor key (see
+// actor-logic.js), ACTOR_UNASSIGNED (assignee only), or null to clear.
+function setActorFilter(field, keyOrNull) {
+  var value = keyOrNull || null;
+  if (field === "assignee") activeAssigneeFilter = value;
+  else activeCreatorFilter = value;
+  _syncFilterParam(field === "assignee" ? "assigned" : "created", value);
+  updateFiltersBtnAffordance();
+  _rerenderFilteredViews();
+  var sel = document.getElementById(field === "assignee" ? "filter-assignee-select" : "filter-creator-select");
+  if (sel) sel.value = value || "";
+}
+
+// One action, two entry points (drawer header button, ✕ on the nav count):
+// reset tag + assignee + creator and scrub all three URL params.
+function clearAllFilters() {
+  activeTagFilter = null;
+  activeAssigneeFilter = null;
+  activeCreatorFilter = null;
+  var sp = new URLSearchParams(location.search);
+  sp.delete("tag"); sp.delete("assigned"); sp.delete("created");
+  var qs = sp.toString();
+  history.replaceState(null, "", location.pathname + (qs ? "?" + qs : "") + location.hash);
+  updateFiltersBtnAffordance();
+  _rerenderFilteredViews();
+  renderFilterPanel(); // resync drawer selects (cheap; safe when closed)
+}
+
 function renderFilterPanel() {
+  _renderTagFilterSection();
+  _renderActorFilterSection("assignee");
+  _renderActorFilterSection("creator");
+}
+
+function _renderTagFilterSection() {
   var section = document.getElementById("filter-section-tag");
   if (!section) return;
   var tagSet = {};
@@ -3471,6 +3623,132 @@ function renderFilterPanel() {
   section.innerHTML = html;
   document.getElementById("filter-tag-select").addEventListener("change", function() {
     setTagFilter(this.value || null);
+  });
+}
+
+// Assignee/creator filter section, mirroring the tag section: options are the
+// distinct canonical actor keys across loaded tasks, grouped into optgroups by
+// kind; the section hides when no task carries the field; a stale selection
+// auto-clears like a stale tag.
+function _renderActorFilterSection(field) {
+  var isAssignee = field === "assignee";
+  var section = document.getElementById(isAssignee ? "filter-section-assignee" : "filter-section-creator");
+  if (!section) return;
+  var selId = isAssignee ? "filter-assignee-select" : "filter-creator-select";
+  var active = isAssignee ? activeAssigneeFilter : activeCreatorFilter;
+
+  // Distinct actors, canonical key → display name. Null prototype: actor ids
+  // are free-form strings ("constructor" must not hit an inherited property).
+  var names = Object.create(null);
+  var keys = [];
+  (tasks || []).forEach(function(task) {
+    var raw = isAssignee ? task.assigned_to : task.created_by;
+    var key = normalizeActor(raw);
+    if (key === null) return;
+    if (names[key] === undefined) {
+      names[key] = actorDisplayName(raw) || key;
+      keys.push(key);
+    }
+  });
+
+  if (keys.length === 0) {
+    if (active) setActorFilter(field, null);
+    section.style.display = "none";
+    section.innerHTML = "";
+    return;
+  }
+  // The unassigned sentinel is always a live option while the assignee
+  // section renders; anything else must match a present actor.
+  var sentinelOk = isAssignee && active === ACTOR_UNASSIGNED;
+  if (active && !sentinelOk && keys.indexOf(active) === -1) {
+    setActorFilter(field, null);
+    active = null;
+  }
+
+  var groups = { human: [], agent: [], team: [], other: [] };
+  keys.forEach(function(key) { groups[actorKind(key)].push(key); });
+  var groupOrder = [
+    ["human", "filter.group.humans"],
+    ["agent", "filter.group.agents"],
+    ["team", "filter.group.teams"],
+    ["other", "filter.group.other"]
+  ];
+
+  var html = '<label for="' + selId + '">' + esc(t(isAssignee ? "filter.assignee.label" : "filter.creator.label")) + '</label>';
+  html += '<select id="' + selId + '"><option value="">' + esc(t("filter.actor.any")) + '</option>';
+  if (isAssignee) {
+    html += '<option value="' + ACTOR_UNASSIGNED + '"' + (active === ACTOR_UNASSIGNED ? ' selected' : '') + '>' + esc(t("filter.assignee.unassigned")) + '</option>';
+  }
+  groupOrder.forEach(function(pair) {
+    var bucket = groups[pair[0]];
+    if (!bucket.length) return;
+    bucket.sort(function(a, b) {
+      var da = names[a].toLowerCase(), db = names[b].toLowerCase();
+      return da < db ? -1 : da > db ? 1 : (a < b ? -1 : a > b ? 1 : 0);
+    });
+    html += '<optgroup label="' + esc(t(pair[1])) + '">';
+    bucket.forEach(function(key) {
+      html += '<option value="' + esc(key) + '"' + (key === active ? ' selected' : '') + '>' + esc(names[key]) + '</option>';
+    });
+    html += '</optgroup>';
+  });
+  html += '</select>';
+  section.style.display = "";
+  section.innerHTML = html;
+  document.getElementById(selId).addEventListener("change", function() {
+    setActorFilter(field, this.value || null);
+  });
+}
+
+// --- Actor chips (creator → assignee) ---
+
+// One actor chip. `role` ("creator" | "assignee") decides which filter a
+// click sets and which label the tooltip leads with. Returns "" for null.
+function renderActorChip(actor, role, solid) {
+  var key = normalizeActor(actor);
+  if (key === null) return "";
+  var name = actorDisplayName(actor) || key;
+  var roleLabel = role === "creator" ? t("detail.created_by") : t("detail.assigned_to");
+  var tip = roleLabel + ": " + actorTooltip(actor);
+  var html = '<span class="actor-chip' + (solid ? '' : ' actor-chip-ghost') + '" data-actor-key="' + esc(key) + '" data-actor-field="' + (role === "creator" ? "creator" : "assignee") + '" title="' + esc(tip) + '">';
+  html += '<span class="actor-dot actor-dot-' + actorKind(key) + '" style="--actor-hue:' + actorHue(key) + '"></span>';
+  html += '<span class="actor-chip-name">' + esc(name) + '</span></span>';
+  return html;
+}
+
+// Creator → assignee pair for board cards: ghost creator, muted arrow, solid
+// assignee. Creator == assignee collapses to one solid chip; a creator with
+// no assignee renders `creator → unassigned`; an assignee with no creator
+// renders alone.
+function renderActorPairHTML(createdBy, assignedTo) {
+  var creatorKey = normalizeActor(createdBy);
+  var assigneeKey = normalizeActor(assignedTo);
+  if (creatorKey === null && assigneeKey === null) return "";
+  if (creatorKey !== null && creatorKey === assigneeKey) {
+    return '<span class="actor-pair">' + renderActorChip(assignedTo, "assignee", true) + '</span>';
+  }
+  var html = '<span class="actor-pair">';
+  if (creatorKey !== null) html += renderActorChip(createdBy, "creator", false);
+  if (assigneeKey !== null) {
+    if (creatorKey !== null) html += '<span class="actor-arrow">→</span>';
+    html += renderActorChip(assignedTo, "assignee", true);
+  } else {
+    html += '<span class="actor-arrow">→</span><span class="actor-unassigned">' + esc(t("detail.unassigned")) + '</span>';
+  }
+  html += '</span>';
+  return html;
+}
+
+// Wire chip clicks inside a rendered container: set that chip's field filter.
+// stopPropagation is load-bearing — cards and list rows open the detail panel
+// on click, and a chip click must not fire both.
+function wireActorChipClicks(root) {
+  root.querySelectorAll(".actor-chip").forEach(function(el) {
+    el.addEventListener("click", function(e) {
+      e.stopPropagation();
+      var field = el.getAttribute("data-actor-field") === "creator" ? "creator" : "assignee";
+      setActorFilter(field, el.getAttribute("data-actor-key"));
+    });
   });
 }
 
@@ -3542,13 +3820,17 @@ function _renderPanelContent(taskId, task, events) {
   html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
   if (task.short_id) html += '<div class="dp-field"><dt>Short ID</dt><dd style="font-weight:600;color:var(--accent-primary)">' + esc(task.short_id) + '</dd></div>';
 
+  // Actor fields route through actorTooltip() — legacy strings pass through
+  // unchanged, structured ActorIdentity dicts render readably (not [object Object]).
+  var dpAssignedText = actorTooltip(task.assigned_to) || "Unassigned";
   if (!isArchived) {
-    html += '<div class="dp-field"><dt>Assigned to</dt><dd><span class="editable" id="dp-assigned" title="Click to edit">' + esc(task.assigned_to || "Unassigned") + '</span></dd></div>';
+    html += '<div class="dp-field"><dt>Assigned to</dt><dd><span class="editable" id="dp-assigned" title="Click to edit">' + esc(dpAssignedText) + '</span></dd></div>';
   } else {
-    html += '<div class="dp-field"><dt>Assigned to</dt><dd>' + esc(task.assigned_to || "Unassigned") + '</dd></div>';
+    html += '<div class="dp-field"><dt>Assigned to</dt><dd>' + esc(dpAssignedText) + '</dd></div>';
   }
 
-  if (task.created_by) html += '<div class="dp-field"><dt>Created by</dt><dd>' + esc(task.created_by) + '</dd></div>';
+  var dpCreatedByText = actorTooltip(task.created_by);
+  if (dpCreatedByText) html += '<div class="dp-field"><dt>Created by</dt><dd>' + esc(dpCreatedByText) + '</dd></div>';
   if (task.created_at) html += '<div class="dp-field"><dt>Created</dt><dd>' + esc(task.created_at) + '</dd></div>';
   if (task.updated_at) html += '<div class="dp-field"><dt>Updated</dt><dd>' + esc(task.updated_at) + '</dd></div>';
   html += '</div>';
@@ -3725,7 +4007,7 @@ function _wirePanelActions(taskId, task) {
       var input = document.createElement("input");
       input.type = "text";
       input.className = "form-control";
-      input.value = task.assigned_to || "";
+      input.value = normalizeActor(task.assigned_to) || "";
       var saveBtn = document.createElement("button");
       saveBtn.className = "btn btn-primary btn-sm";
       saveBtn.textContent = t("btn.save");
@@ -3871,6 +4153,8 @@ document.addEventListener("DOMContentLoaded", function() {
   if (filtersBtn) filtersBtn.addEventListener("click", toggleFilterPanel);
   var filterClose = document.getElementById("filter-panel-close");
   if (filterClose) filterClose.addEventListener("click", closeFilterPanel);
+  var filterClearAll = document.getElementById("filter-clear-all");
+  if (filterClearAll) filterClearAll.addEventListener("click", clearAllFilters);
 
   // Escape key closes panels (unless user is in an active inline edit)
   document.addEventListener("keydown", function(e) {
@@ -4559,7 +4843,7 @@ function renderBoardCard(t) {
   if (t.priority) html += '<span class="badge pri-' + esc(t.priority) + '">' + esc(t.priority) + "</span>";
   if (t.type) html += '<span class="badge type-badge">' + esc(t.type) + "</span>";
   if (t.has_active_session) html += '<span class="active-badge"><span class="active-dot"></span>Active</span>';
-  if (t.assigned_to) html += '<span style="color:var(--text-muted);font-size:.7rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">' + esc(t.assigned_to) + "</span>";
+  html += renderActorPairHTML(t.created_by, t.assigned_to);
   if (t.tags && t.tags.length) {
     var tagsShown = t.tags.slice(0, 3);
     tagsShown.forEach(function(tag) {
@@ -4587,11 +4871,10 @@ function renderBoard() {
     return;
   }
 
-  var visibleTasks = activeTagFilter
-    ? tasks.filter(function(task) { return task.tags && task.tags.indexOf(activeTagFilter) !== -1; })
-    : tasks;
+  var hasActiveFilters = activeFilterCount() > 0;
+  var visibleTasks = hasActiveFilters ? tasks.filter(taskMatchesActiveFilters) : tasks;
 
-  if (activeTagFilter && visibleTasks.length === 0) {
+  if (hasActiveFilters && visibleTasks.length === 0) {
     app.innerHTML = '<div class="empty"><p>' + esc(t("empty.list.filtered")) + '</p></div>';
     return;
   }
@@ -4754,6 +5037,9 @@ function renderBoard() {
       setTagFilter(el.getAttribute("data-tag"));
     });
   });
+
+  // Actor chip → set assignee/creator filter (same propagation rule as tags)
+  wireActorChipClicks(app);
 
   // Add click handlers for card → floating detail panel (separate from drag)
   app.querySelectorAll(".card").forEach(function(card) {
@@ -5026,7 +5312,7 @@ function applyListFilters() {
     if (status && t.status !== status) return false;
     if (type && t.type !== type) return false;
     if (priority && t.priority !== priority) return false;
-    if (activeTagFilter && (!t.tags || t.tags.indexOf(activeTagFilter) === -1)) return false;
+    if (!taskMatchesActiveFilters(t)) return false;
     return true;
   });
 
@@ -5056,7 +5342,7 @@ function applyListFilters() {
     if (t.priority) html += '<span class="badge pri-' + esc(t.priority) + '">' + esc(t.priority) + "</span>";
     html += "</td>";
     html += "<td>" + esc(t.type || "") + "</td>";
-    html += "<td>" + esc(t.assigned_to || "") + "</td>";
+    html += "<td>" + renderActorChip(t.assigned_to, "assignee", true) + "</td>";
     html += "<td>" + esc(updated) + "</td>";
     html += "</tr>";
   });
@@ -5068,6 +5354,8 @@ function applyListFilters() {
       openDetailPanel(row.dataset.taskId);
     });
   });
+  // Assignee chip → filter (stopPropagation keeps the row from opening detail)
+  wireActorChipClicks(listTable);
 }
 
 // --- Detail View ---
@@ -5147,17 +5435,18 @@ async function renderDetail(taskId) {
     var truncId = task.id && task.id.length > 12 ? task.id.slice(0, 12) + "\u2026" : (task.id || "");
     html += '<div class="detail-field" id="tech-id-field"><dt>' + esc(t("detail.tech_id")) + '</dt><dd id="tech-id-value" data-full="' + esc(task.id) + '" data-short="' + esc(truncId) + '" data-expanded="0" style="font-family:monospace;font-size:.8rem;cursor:pointer">' + esc(truncId) + '</dd></div>';
 
-    // Assigned to (editable)
+    // Assigned to (editable). actorTooltip(): strings unchanged, dicts readable.
+    var detailAssignedText = actorTooltip(task.assigned_to) || t("detail.unassigned");
     if (!isArchived) {
       html += '<div class="detail-field"><dt>' + esc(t("detail.assigned_to")) + '</dt><dd>';
-      html += '<span class="editable" id="detail-assigned" title="Click to edit">' + esc(task.assigned_to || t("detail.unassigned")) + '</span>';
+      html += '<span class="editable" id="detail-assigned" title="Click to edit">' + esc(detailAssignedText) + '</span>';
       html += '</dd></div>';
     } else {
-      html += '<div class="detail-field"><dt>' + esc(t("detail.assigned_to")) + '</dt><dd title="' + esc(task.assigned_to || t("detail.unassigned")) + '">' + esc(task.assigned_to || t("detail.unassigned")) + '</dd></div>';
+      html += '<div class="detail-field"><dt>' + esc(t("detail.assigned_to")) + '</dt><dd title="' + esc(detailAssignedText) + '">' + esc(detailAssignedText) + '</dd></div>';
     }
 
     var infoFields = [
-      [t("detail.created_by"), task.created_by], [t("detail.created"), task.created_at], [t("detail.updated"), task.updated_at],
+      [t("detail.created_by"), actorTooltip(task.created_by)], [t("detail.created"), task.created_at], [t("detail.updated"), task.updated_at],
       [t("detail.urgency"), task.urgency]
     ];
     infoFields.forEach(function(pair) {
@@ -5391,7 +5680,7 @@ function _wireDetailActions(taskId, task) {
       var input = document.createElement("input");
       input.type = "text";
       input.className = "form-control";
-      input.value = task.assigned_to || "";
+      input.value = normalizeActor(task.assigned_to) || "";
       var saveBtn = document.createElement("button");
       saveBtn.className = "btn btn-primary btn-sm";
       saveBtn.textContent = t("btn.save");
