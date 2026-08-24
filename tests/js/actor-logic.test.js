@@ -120,7 +120,10 @@ test("actorDisplayName: strings drop the prefix, dicts use name, null → ''", (
 test("actorTooltip: strings unchanged; dicts join name/model/framework; null → ''", () => {
   assert.strictEqual(actorTooltip("agent:claude"), "agent:claude");
   assert.strictEqual(actorTooltip(AGENT_DICT), "Meridian-1 · claude-opus-4 · claude-code");
-  assert.strictEqual(actorTooltip(HUMAN_DICT), "Atin-1 · human");
+  // Human dicts omit the literal "human" model segment — kind is already
+  // conveyed by the chip; any framework/extras would still be appended.
+  assert.strictEqual(actorTooltip(HUMAN_DICT), "Atin-1");
+  assert.strictEqual(actorTooltip({ name: "Atin-1", model: "human", framework: "web" }), "Atin-1 · web");
   assert.strictEqual(actorTooltip({ name: "Solo-1" }), "Solo-1");
   assert.strictEqual(actorTooltip(null), "");
   assert.strictEqual(actorTooltip(undefined), "");

@@ -63,14 +63,16 @@ function actorDisplayName(a) {
 
 // Full identity string for tooltips and detail-panel text. Strings pass
 // through unchanged (the legacy id IS the full identity); dicts join
-// name · model · framework (whichever are present); null/junk → "".
+// name · model · framework (whichever are present); null/junk → "". For human
+// dicts (model === "human") the model segment is omitted — the chip's dot
+// shape already conveys kind, and "Atin-1 · human" reads as noise.
 function actorTooltip(a) {
   if (a == null) return "";
   if (typeof a === "string") return a;
   if (typeof a === "object" && !Array.isArray(a)) {
     var parts = [];
     if (typeof a.name === "string" && a.name) parts.push(a.name);
-    if (typeof a.model === "string" && a.model) parts.push(a.model);
+    if (typeof a.model === "string" && a.model && a.model !== "human") parts.push(a.model);
     if (typeof a.framework === "string" && a.framework) parts.push(a.framework);
     return parts.join(" · ");
   }
