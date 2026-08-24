@@ -4145,7 +4145,12 @@ document.addEventListener("DOMContentLoaded", function() {
   var filtersBtn = document.getElementById("filters-btn");
   if (filtersBtn) filtersBtn.addEventListener("click", toggleFilterPanel);
   var filtersClearBtn = document.getElementById("filters-clear-btn");
-  if (filtersClearBtn) filtersClearBtn.addEventListener("click", clearAllFilters);
+  if (filtersClearBtn) filtersClearBtn.addEventListener("click", function() {
+    clearAllFilters();
+    // The clear button hides itself once no filters are active — move focus
+    // to the adjacent Filters button so keyboard users aren't dropped to <body>.
+    if (filtersBtn) filtersBtn.focus();
+  });
   var filterClose = document.getElementById("filter-panel-close");
   if (filterClose) filterClose.addEventListener("click", closeFilterPanel);
   var filterClearAll = document.getElementById("filter-clear-all");
