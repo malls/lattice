@@ -128,8 +128,8 @@ lattice restart --port 8769  # specific port
 
 ### what you see
 
-- **Board** — Kanban columns per status. drag tasks between columns to move them. the primary view. where you. see everything at a glance.
-- **List** — filterable table. search. slice by priority, type, tag, assignee. for when you know what you're looking for.
+- **Board** — Kanban columns per status. drag tasks between columns to move them. the primary view. where you. see everything at a glance. each card carries an actor pair — `creator → assignee` — and clicking either chip filters the board by that actor. the Filters drawer holds the same controls (tag, assigned to, created by), and both filters survive in the URL as `?assigned=` and `?created=` so a filtered board is a link you can share.
+- **List** — filterable table. search. slice by priority, type, tag, assignee, creator. for when you know what you're looking for.
 - **Activity** — chronological feed. what your agents have been doing since you last checked. the river of events.
 - **Stats** — velocity. time-in-status. blocked counts. agent activity. the numbers behind the work. for when vibes aren't enough.
 - **Web** — force-directed graph of task relationships. see how parent tasks and dependencies connect. the web of causation. made visible.

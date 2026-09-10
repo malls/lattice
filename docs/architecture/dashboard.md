@@ -40,6 +40,22 @@ Key read endpoints:
 
 These are used by the frontend for board, graph, activity, and git overlays.
 
+`/api/tasks` does not return whole snapshots. Each task is passed through
+`compact_snapshot()` in `src/lattice/core/tasks.py`, which projects a fixed
+field allowlist, and the handler then layers on a few extras (`created_at`,
+`updated_at`, `done_at`, `has_active_session`).
+
+**A field the board UI needs must be added to that allowlist.** This is the
+easy trap: the frontend can be complete — filter controls, URL params, i18n,
+chips — and still be inert, because the payload never carries the field and
+the UI reads it as absent for every task. A filter section that hides itself
+when no task has a value will simply never appear, with no error anywhere.
+The `created_by` creator filter shipped broken this way. If a new board
+feature reads `task.<field>` and always sees null, check the allowlist first.
+
+The graph endpoint (`/api/graph`) keeps its own separate node projection, so
+a field added for the board does not automatically reach the graph.
+
 Full task responses preserve complete evidence-reference objects, including
 nullable roles and optional criterion IDs. Task details render active and
 retired criteria, current revisions and histories, linked-evidence counts and
