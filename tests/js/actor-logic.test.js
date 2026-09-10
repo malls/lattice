@@ -26,6 +26,7 @@ const {
   actorTooltip,
   actorHue,
   actorMatchesFilter,
+  actorPairLayout,
 } = actor;
 
 // A realistic structured ActorIdentity as serialized into task payloads.
@@ -180,4 +181,80 @@ test("actorMatchesFilter: unassigned sentinel matches only null-normalized actor
   // A task literally assigned the sentinel string is pathological; the rule
   // still treats the sentinel filter as "no assignee", not a key equality.
   assert.strictEqual(actorMatchesFilter(ACTOR_UNASSIGNED, ACTOR_UNASSIGNED), false);
+});
+
+// --- actorPairLayout ---------------------------------------------------
+// The card's `creator → assignee` pair. The regression this locks down: a
+// self-assigned task used to collapse to a single assignee chip, which hid
+// the arrow and made the creator filter unreachable on those tasks.
+
+test("actorPairLayout: null when neither actor is present", () => {
+  assert.strictEqual(actorPairLayout(null, null), null);
+  assert.strictEqual(actorPairLayout(undefined, undefined), null);
+  assert.strictEqual(actorPairLayout("", ""), null);
+  // Junk that normalizes to null on both sides is still nothing to render.
+  assert.strictEqual(actorPairLayout({}, []), null);
+});
+
+test("actorPairLayout: creator and a different assignee render both sides", () => {
+  const l = actorPairLayout("agent:claude", "human:forrest");
+  assert.strictEqual(l.creatorKey, "agent:claude");
+  assert.strictEqual(l.assigneeKey, "human:forrest");
+  assert.strictEqual(l.showCreator, true);
+  assert.strictEqual(l.showArrow, true);
+  assert.strictEqual(l.showAssignee, true);
+  assert.strictEqual(l.showUnassigned, false);
+  assert.strictEqual(l.selfAssigned, false);
+});
+
+test("actorPairLayout: self-assigned renders BOTH chips, not a collapsed one", () => {
+  const l = actorPairLayout("agent:cto-owen", "agent:cto-owen");
+  assert.strictEqual(l.selfAssigned, true);
+  // The bug: these three were false/absent when the pair collapsed, leaving
+  // only an assignee chip and no way to filter by creator.
+  assert.strictEqual(l.showCreator, true);
+  assert.strictEqual(l.showArrow, true);
+  assert.strictEqual(l.showAssignee, true);
+  assert.strictEqual(l.creatorKey, "agent:cto-owen");
+  assert.strictEqual(l.assigneeKey, "agent:cto-owen");
+});
+
+test("actorPairLayout: self-assigned detected across actor shapes", () => {
+  // A dict creator and a legacy-string assignee naming the same actor still
+  // compare equal, because both go through normalizeActor first.
+  const l = actorPairLayout({ name: "claude", model: "opus" }, "agent:claude");
+  assert.strictEqual(l.selfAssigned, true);
+  assert.strictEqual(l.showCreator, true);
+  assert.strictEqual(l.showAssignee, true);
+});
+
+test("actorPairLayout: creator with no assignee renders the unassigned placeholder", () => {
+  const l = actorPairLayout("agent:claude", null);
+  assert.strictEqual(l.showCreator, true);
+  // Arrow still shows — it points at the placeholder.
+  assert.strictEqual(l.showArrow, true);
+  assert.strictEqual(l.showAssignee, false);
+  assert.strictEqual(l.showUnassigned, true);
+  assert.strictEqual(l.selfAssigned, false);
+});
+
+test("actorPairLayout: assignee with no creator renders alone, without an arrow", () => {
+  const l = actorPairLayout(null, "human:forrest");
+  assert.strictEqual(l.showCreator, false);
+  assert.strictEqual(l.showArrow, false);
+  assert.strictEqual(l.showAssignee, true);
+  assert.strictEqual(l.showUnassigned, false);
+  assert.strictEqual(l.selfAssigned, false);
+});
+
+test("actorPairLayout: does not throw on junk actor values", () => {
+  for (const junk of [42, true, [], {}, () => {}, NaN]) {
+    assert.doesNotThrow(() => actorPairLayout(junk, junk));
+    assert.doesNotThrow(() => actorPairLayout(junk, "agent:claude"));
+    assert.doesNotThrow(() => actorPairLayout("agent:claude", junk));
+  }
+  // Junk on one side degrades to the other side alone, never to a broken pair.
+  const l = actorPairLayout(42, "agent:claude");
+  assert.strictEqual(l.showCreator, false);
+  assert.strictEqual(l.showAssignee, true);
 });

@@ -35,6 +35,7 @@ ACTOR_IDENTIFIERS = [
     "actorTooltip",
     "actorHue",
     "actorMatchesFilter",
+    "actorPairLayout",
 ]
 
 

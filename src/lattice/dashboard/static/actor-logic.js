@@ -100,7 +100,37 @@ function actorMatchesFilter(actorValue, filterKey) {
   return key === filterKey;
 }
 
+// Decide which parts of a card's `creator → assignee` pair to render. Pure:
+// returns a layout description, never HTML, so the rule is testable without a
+// DOM. Returns null when there is nothing to show at all.
+//
+// The arrow is shown whenever a creator exists — including the
+// `creator → unassigned` case, where the placeholder stands in for the
+// missing assignee.
+//
+// Self-assigned tasks (creator === assignee) deliberately render BOTH chips
+// rather than collapsing to one. Collapsing looks tidier, but the surviving
+// chip can only carry a single filter field, which left the creator filter
+// unreachable on exactly the tasks where an actor both opened and owns the
+// work. `selfAssigned` is reported so the renderer can style the pair, never
+// to drop a side of it.
+function actorPairLayout(createdBy, assignedTo) {
+  var creatorKey = normalizeActor(createdBy);
+  var assigneeKey = normalizeActor(assignedTo);
+  if (creatorKey === null && assigneeKey === null) return null;
+  return {
+    creatorKey: creatorKey,
+    assigneeKey: assigneeKey,
+    showCreator: creatorKey !== null,
+    showArrow: creatorKey !== null,
+    showAssignee: assigneeKey !== null,
+    showUnassigned: assigneeKey === null,
+    selfAssigned: creatorKey !== null && creatorKey === assigneeKey
+  };
+}
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { ACTOR_UNASSIGNED, normalizeActor, actorKind,
-    actorDisplayName, actorTooltip, actorHue, actorMatchesFilter };
+    actorDisplayName, actorTooltip, actorHue, actorMatchesFilter,
+    actorPairLayout };
 }

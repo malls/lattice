@@ -3710,22 +3710,19 @@ function renderActorChip(actor, role, solid) {
 }
 
 // Creator → assignee pair for board cards: ghost creator, muted arrow, solid
-// assignee. Creator == assignee still renders the full pair — collapsing it
-// to one chip hid the arrow and left only the assignee filter reachable, so
-// self-assigned tasks could not be filtered by creator. A creator with no
-// assignee renders `creator → unassigned`; an assignee with no creator
-// renders alone.
+// assignee. Which parts appear is decided by actorPairLayout() in
+// actor-logic.js (pure, unit-tested); this function only turns that decision
+// into markup.
 function renderActorPairHTML(createdBy, assignedTo) {
-  var creatorKey = normalizeActor(createdBy);
-  var assigneeKey = normalizeActor(assignedTo);
-  if (creatorKey === null && assigneeKey === null) return "";
+  var layout = actorPairLayout(createdBy, assignedTo);
+  if (layout === null) return "";
   var html = '<span class="actor-pair">';
-  if (creatorKey !== null) html += renderActorChip(createdBy, "creator", false);
-  if (assigneeKey !== null) {
-    if (creatorKey !== null) html += '<span class="actor-arrow">→</span>';
+  if (layout.showCreator) html += renderActorChip(createdBy, "creator", false);
+  if (layout.showArrow) html += '<span class="actor-arrow">→</span>';
+  if (layout.showAssignee) {
     html += renderActorChip(assignedTo, "assignee", true);
   } else {
-    html += '<span class="actor-arrow">→</span><span class="actor-unassigned">' + esc(t("detail.unassigned")) + '</span>';
+    html += '<span class="actor-unassigned">' + esc(t("detail.unassigned")) + '</span>';
   }
   html += '</span>';
   return html;
