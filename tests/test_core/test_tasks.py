@@ -1301,6 +1301,7 @@ class TestCompactSnapshot:
             "complexity",
             "type",
             "assigned_to",
+            "created_by",
             "tags",
             "done_at",
             "last_status_changed_at",
@@ -1326,6 +1327,7 @@ class TestCompactSnapshot:
         assert compact["urgency"] == "normal"
         assert compact["type"] == "bug"
         assert compact["assigned_to"] == "agent:claude"
+        assert compact["created_by"] == _ACTOR
         assert compact["tags"] == ["auth", "urgent"]
 
     def test_counts_computed_correctly(self) -> None:
@@ -1367,7 +1369,6 @@ class TestCompactSnapshot:
         snap = _make_snapshot()
         compact = compact_snapshot(snap)
         assert "description" not in compact
-        assert "created_by" not in compact
         assert "created_at" not in compact
         assert "updated_at" not in compact
         assert "relationships_out" not in compact
