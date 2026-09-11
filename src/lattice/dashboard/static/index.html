@@ -1395,11 +1395,17 @@ select.form-control{cursor:pointer}
    get the same 16px content box regardless of theme font size; without it
    the ✕ glyph on a 13px theme came out half a pixel shorter. The ID selector
    outranks theme `.btn:hover` rules that would otherwise repaint the accent
-   fill on hover. */
+   fill on hover — which is also why this rule must never set `display`: an
+   ID-level display outranks the UA's [hidden]{display:none} and would show
+   the ✕ with no filter active.
+   #filters-btn is nowrap because its label carries the active count
+   ("Filters · 1"); in a narrow nav it wrapped to two lines and grew to 42px
+   while the ✕ beside it stayed at 26px — the pair split visibly. */
 .filter-clear-all{background:none;border:none;color:var(--accent-primary);font-size:.8rem;cursor:pointer;padding:0 .25rem;white-space:nowrap}
 .filter-clear-all:hover{text-decoration:underline}
-#filters-clear-btn{display:inline-flex;align-items:center;line-height:16px;margin-left:-0.5rem;padding-left:0.5rem;padding-right:0.5rem;border-left:none;border-radius:0 var(--radius-sm) var(--radius-sm) 0;background:var(--accent-primary);border-color:var(--accent-primary);color:var(--text-on-accent);letter-spacing:0;text-transform:none;opacity:.8}
+#filters-clear-btn{line-height:16px;margin-left:-0.5rem;padding-left:0.5rem;padding-right:0.5rem;border-left:none;border-radius:0 var(--radius-sm) var(--radius-sm) 0;background:var(--accent-primary);border-color:var(--accent-primary);color:var(--text-on-accent);letter-spacing:0;text-transform:none;opacity:.8}
 #filters-clear-btn:hover,#filters-clear-btn:focus-visible{background:var(--accent-primary);border-color:var(--accent-primary);opacity:1}
+#filters-btn{white-space:nowrap}
 #filters-btn.has-clear{border-top-right-radius:0;border-bottom-right-radius:0}
 #filters-btn[aria-pressed="true"]{background:var(--accent-primary);color:var(--text-on-accent);border-color:var(--accent-primary)}
 .stats-tag-row{cursor:pointer}
