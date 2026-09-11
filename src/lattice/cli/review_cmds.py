@@ -25,6 +25,7 @@ from lattice.cli.main import cli
 from lattice.core.review import (
     DEFAULT_MAX_DIFF_CHARS,
     DEFAULT_MAX_DIFF_LINES,
+    DiffResolution,
     cap_diff,
     cap_diff_chars,
     claim_review_state,
@@ -57,10 +58,87 @@ def _normalize_worktree(worktree: Path | None) -> tuple[Path | None, str | None]
     return Path(result.stdout.strip()).resolve(), None
 
 
-def _head_sha(worktree: Path) -> str:
-    return subprocess.check_output(
-        ["git", "-C", str(worktree), "rev-parse", "HEAD"], text=True
-    ).strip()
+def _evidence_header(resolution: DiffResolution) -> str:
+    """Build the ``Lattice-Reviewed-*`` block describing what was diffed.
+
+    ``Lattice-Reviewed-Commit`` stays line 1 with a bare 40-char SHA:
+    ``core.config._REVIEW_MARKER`` is ``\\A``-anchored and the
+    reachable-review-commit completion gate parses it. The base/head lines go
+    after it so the range is legible in the prompt and the stored artifact.
+
+    Raises ``ValueError`` when the head SHA is unknown. An empty value there
+    parses as no marker at all, which silently returns the completion gate to
+    the vacuous state this whole path exists to end — better to refuse to
+    write the header than to write half of one.
+    """
+    if not resolution.head_sha:
+        raise ValueError(
+            "Cannot build the review evidence header: the resolved head SHA is unknown. "
+            "Pass --head <ref> to name the commit under review."
+        )
+    lines = [f"Lattice-Reviewed-Commit: {resolution.head_sha}"]
+    if resolution.worktree is not None:
+        lines.append(f"Lattice-Reviewed-Worktree: {resolution.worktree}")
+    if resolution.base_ref:
+        lines.append(
+            f"Lattice-Reviewed-Base: {resolution.base_ref} ({resolution.base_sha or '-'})"
+        )
+    if resolution.head_ref:
+        lines.append(
+            f"Lattice-Reviewed-Head: {resolution.head_ref} ({resolution.head_sha or '-'})"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _emit_dry_run(
+    *,
+    resolution: DiffResolution,
+    prompt: str,
+    diff_lines: int,
+    diff_chars: int,
+    truncated: bool,
+    is_json: bool,
+) -> None:
+    """Print the resolution and assembled prompt for ``--dry-run``, then return.
+
+    Claims nothing, spawns nothing, attaches nothing — the point is to see the
+    *resolution* (which tree, which range) without spending a model run.
+    """
+    if is_json:
+        click.echo(
+            json.dumps(
+                {
+                    "ok": True,
+                    "data": {
+                        "base_ref": resolution.base_ref,
+                        "head_ref": resolution.head_ref,
+                        "base_sha": resolution.base_sha,
+                        "head_sha": resolution.head_sha,
+                        "worktree": str(resolution.worktree) if resolution.worktree else None,
+                        "source": resolution.source,
+                        "warning": resolution.warning,
+                        "diff_lines": diff_lines,
+                        "diff_chars": diff_chars,
+                        "truncated": truncated,
+                        "prompt": prompt,
+                    },
+                },
+                indent=2,
+            )
+        )
+        return
+
+    click.echo("Diff resolution (dry run — nothing claimed, spawned, or stored):")
+    click.echo(f"  worktree: {resolution.worktree}")
+    click.echo(f"  base:     {resolution.base_ref} ({resolution.base_sha or '-'})")
+    click.echo(f"  head:     {resolution.head_ref} ({resolution.head_sha or '-'})")
+    click.echo(f"  source:   {resolution.source}")
+    click.echo(f"  range:    {resolution.range_desc}")
+    click.echo(f"  diff:     {diff_lines} lines, {diff_chars} chars, truncated={truncated}")
+    if resolution.warning:
+        click.echo(f"  warning:  {resolution.warning}")
+    click.echo("\n--- prompt ---")
+    click.echo(prompt)
 
 
 def _claim_or_refuse(
@@ -172,6 +250,13 @@ def _claim_or_refuse(
     help="Directory to run git from (a checkout/worktree that can resolve the head ref). "
     "Defaults to the repo containing .lattice/.",
 )
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Resolve the diff and print the resolution plus the assembled prompt, then exit. "
+    "Claims no review slot, spawns no agent, attaches no artifact.",
+)
 @common_options
 def code_review(
     task_id: str,
@@ -179,6 +264,7 @@ def code_review(
     base: str | None,
     head: str | None,
     worktree: Path | None,
+    dry_run: bool,
     model: str | None,
     session: str | None,
     output_json: bool,
@@ -203,7 +289,7 @@ def code_review(
     # Inline-mode contention check: even though inline never claims, refuse
     # if a non-inline review is in flight so the operator doesn't run two
     # reviews in parallel by accident.
-    if mode == "inline":
+    if mode == "inline" and not dry_run:
         existing = read_review_state(lattice_dir, task_id)
         if isinstance(existing, dict):
             from lattice.core.review import pid_alive
@@ -232,36 +318,60 @@ def code_review(
             click.echo(msg)
         return
 
-    actor = require_actor(is_json)
     reviewed_worktree, worktree_error = _normalize_worktree(worktree)
     if worktree_error:
         output_error(worktree_error, "DIFF_RESOLUTION_FAILED", is_json)
     assert reviewed_worktree is not None
-    reviewed_sha = _head_sha(reviewed_worktree)
 
-    # Claim the in-flight slot (or adopt the parent's claim when this is
-    # an auto-fired child invoked with --triggered-by).
-    _claim_or_refuse(
-        lattice_dir,
-        task_id,
-        mode=mode,
-        review_type="code-review",
-        triggered_by=triggered_by,
-        is_json=is_json,
-    )
+    actor: str | dict | None = None
+    if not dry_run:
+        actor = require_actor(is_json)
+        # Claim the in-flight slot (or adopt the parent's claim when this is
+        # an auto-fired child invoked with --triggered-by). A dry run claims
+        # nothing, so it never contends with a real review.
+        _claim_or_refuse(
+            lattice_dir,
+            task_id,
+            mode=mode,
+            review_type="code-review",
+            triggered_by=triggered_by,
+            is_json=is_json,
+        )
 
-    # Resolve diff
-    success, diff_or_err = resolve_diff(
+    resolution = resolve_diff(
         lattice_dir, task_id, snapshot, base=base, head=head, worktree=reviewed_worktree
     )
-    if not success:
-        output_error(diff_or_err, "DIFF_RESOLUTION_FAILED", is_json)
+    if not resolution.success:
+        assert resolution.error is not None
+        if not dry_run:
+            assert actor is not None
+            _record_resolution_failure(
+                lattice_dir,
+                task_id,
+                mode=mode,
+                message=resolution.error,
+                error_code=resolution.error_code or "DIFF_RESOLUTION_FAILED",
+                actor=actor,
+                config=config,
+                auto_fired=triggered_by is not None,
+            )
+        output_error(resolution.error, resolution.error_code or "DIFF_RESOLUTION_FAILED", is_json)
 
-    diff_content = diff_or_err
+    if resolution.warning and not quiet:
+        click.echo(f"Note: {resolution.warning}", err=True)
 
+    diff_content = resolution.diff
+    range_desc = resolution.range_desc
+
+    # Defense in depth: resolution already refuses an empty diff, and a review
+    # that emits a PASS on zero lines is the failure this whole path exists to
+    # prevent.
     if not diff_content.strip():
         output_error(
-            "Diff is empty — no changes detected. Use --base <ref> if the diff range is wrong.",
+            f"Diff is empty — no changes detected over {range_desc}. "
+            f"The head is most likely already merged into the base (or identical to it); "
+            f"pass --base <merge-base> to review it anyway, or --base/--head if the "
+            f"diff range is wrong.",
             "EMPTY_DIFF",
             is_json,
         )
@@ -269,11 +379,13 @@ def code_review(
     # Cap a pathologically large diff before it bloats the prompt. Defense in
     # depth: a too-wide resolution range shouldn't blow up review cost.
     max_diff_lines = config.get("review_max_diff_lines", DEFAULT_MAX_DIFF_LINES)
-    diff_content, diff_capped, diff_lines = cap_diff(diff_content, max_diff_lines)
+    diff_content, diff_capped, diff_lines = cap_diff(
+        diff_content, max_diff_lines, range_desc=range_desc
+    )
     if diff_capped and not quiet:
         click.echo(
-            f"Note: diff has {diff_lines} lines — truncated to {max_diff_lines} "
-            f"for review (configurable via review_max_diff_lines).",
+            f"Note: diff has {diff_lines} lines over {range_desc} — truncated to "
+            f"{max_diff_lines} for review (configurable via review_max_diff_lines).",
             err=True,
         )
 
@@ -281,21 +393,43 @@ def code_review(
     # hundreds of thousands of characters, and prompt size is what pushes a
     # review past its timeout. Cap the characters too.
     max_diff_chars = config.get("review_max_diff_chars", DEFAULT_MAX_DIFF_CHARS)
-    diff_content, chars_capped, diff_chars = cap_diff_chars(diff_content, max_diff_chars)
+    diff_content, chars_capped, diff_chars = cap_diff_chars(
+        diff_content, max_diff_chars, range_desc=range_desc
+    )
     if chars_capped and not quiet:
         click.echo(
-            f"Note: diff is {diff_chars} characters — truncated to {max_diff_chars} "
-            f"for review (configurable via review_max_diff_chars).",
+            f"Note: diff is {diff_chars} characters over {range_desc} — truncated to "
+            f"{max_diff_chars} for review (configurable via review_max_diff_chars).",
             err=True,
         )
+
+    # Evidence headers describe what was *diffed*, not the caller's cwd. The
+    # first line keeps its exact shape: core.config._REVIEW_MARKER anchors on
+    # \A and a 40-char SHA, and the reachable-review-commit gate depends on it.
+    try:
+        evidence_header = _evidence_header(resolution)
+    except ValueError as exc:
+        if not dry_run:
+            assert actor is not None
+            _record_resolution_failure(
+                lattice_dir,
+                task_id,
+                mode=mode,
+                message=str(exc),
+                error_code="HEAD_SHA_UNKNOWN",
+                actor=actor,
+                config=config,
+                auto_fired=triggered_by is not None,
+            )
+        output_error(str(exc), "HEAD_SHA_UNKNOWN", is_json)
 
     # Load and fill review template
     template = load_review_template(lattice_dir, "code-review")
     plan_content = _read_plan(lattice_dir, task_id)
     project_context = _read_project_context(lattice_dir)
     prompt = (
-        f"Lattice-Reviewed-Commit: {reviewed_sha}\n"
-        f"Lattice-Reviewed-Worktree: {reviewed_worktree}\n\n"
+        evidence_header
+        + "\n"
         + template.format(
             task_id=snapshot.get("short_id") or task_id,
             task_description=snapshot.get("description") or snapshot.get("title", ""),
@@ -306,6 +440,18 @@ def code_review(
         )
     )
 
+    if dry_run:
+        _emit_dry_run(
+            resolution=resolution,
+            prompt=prompt,
+            diff_lines=diff_lines,
+            diff_chars=diff_chars,
+            truncated=diff_capped or chars_capped,
+            is_json=is_json,
+        )
+        return
+
+    assert actor is not None
     timeout = config.get("review_timeout_seconds", 600)
 
     if mode == "single":
@@ -323,7 +469,7 @@ def code_review(
             config=config,
             timeout=timeout,
             worktree=reviewed_worktree,
-            reviewed_sha=reviewed_sha,
+            reviewed_header=evidence_header,
             auto_fired=triggered_by is not None,
         )
 
@@ -336,7 +482,9 @@ def code_review(
             actor=actor,
             is_json=is_json,
             quiet=quiet,
-            base=base,
+            base=resolution.base_ref,
+            head=resolution.head_ref,
+            head_sha=resolution.head_sha,
             worktree=reviewed_worktree,
         )
 
@@ -659,6 +807,7 @@ def _report_review_failure(
     actor: str | dict,
     config: dict,
     auto_fired: bool,
+    error_code: str | None = None,
 ) -> None:
     """Leave the failure where a human or agent will actually meet it.
 
@@ -713,8 +862,15 @@ def _report_review_failure(
             type="needs_human_flagged",
             task_id=task_id,
             actor=actor,
+            # The flag is read from a queue, in seconds: name the code, not the paragraph.
+            # The full message is already on the task comment and in `review-status`.
             data={
-                "reason": (f"Auto-fired {review_type} failed ({message}) — task is unreviewed.")
+                "reason": (
+                    f"Auto-fired {review_type} failed ({error_code}) — task is unreviewed; "
+                    f"see 'lattice review-status {task_id}'."
+                    if error_code
+                    else f"Auto-fired {review_type} failed ({message}) — task is unreviewed."
+                )
             },
         )
         return TaskMutationDecision(events=[event])
@@ -723,6 +879,62 @@ def _report_review_failure(
         mutate_task(lattice_dir, task_id, decide_flag, config)
     except Exception:  # noqa: BLE001 — never mask the review failure
         click.echo("Warning: could not flag the task for human attention.", err=True)
+
+
+def _record_resolution_failure(
+    lattice_dir: Path,
+    task_id: str,
+    *,
+    mode: str,
+    message: str,
+    error_code: str,
+    actor: str | dict,
+    config: dict,
+    auto_fired: bool,
+) -> None:
+    """Make a failed diff resolution as visible as a failed review agent.
+
+    A review that dies before it ever assembles a prompt is still a review
+    that produced no verdict, and the task still sits in ``review`` looking
+    reviewed. So it takes the same two routes as an agent failure: a durable
+    ``status: "failed"`` record for ``review-status`` to render, and a comment
+    (plus ``needs_human`` when auto-fired) on the task's own event log.
+
+    The record is deliberately *not* cleared. The claim releases itself the
+    moment this process exits — ``claim_review_state`` reclaims any slot whose
+    holder PID is dead — so keeping the failure costs no retry.
+    """
+    existing = read_review_state(lattice_dir, task_id) or {}
+    state: dict[str, Any] = dict(existing)
+    state.update(
+        {
+            "task_id": task_id,
+            "mode": existing.get("mode", mode),
+            "review_type": "code-review",
+            "status": "failed",
+            "error": message,
+            "finished_at": _now_iso(),
+            "detail": {"error_code": error_code},
+        }
+    )
+    state.setdefault("started_at", state["finished_at"])
+    state.setdefault("started_by_pid", os.getpid())
+    state.setdefault("auto_fired", auto_fired)
+    try:
+        write_review_state(lattice_dir, state)
+    except Exception:  # noqa: BLE001 — never mask the resolution failure
+        click.echo("Warning: could not record the failed review state.", err=True)
+
+    _report_review_failure(
+        lattice_dir,
+        task_id,
+        review_type="code-review",
+        message=message,
+        actor=actor,
+        config=config,
+        auto_fired=auto_fired,
+        error_code=error_code,
+    )
 
 
 def _run_single_and_store(
@@ -740,7 +952,7 @@ def _run_single_and_store(
     config: dict,
     timeout: int = 600,
     worktree: Path | None = None,
-    reviewed_sha: str | None = None,
+    reviewed_header: str | None = None,
     auto_fired: bool = False,
 ) -> str | None:
     """Run single-agent review, store artifact, print result. Returns artifact ID or None."""
@@ -775,7 +987,7 @@ def _run_single_and_store(
     art_id = _attach_review_artifact(
         lattice_dir=lattice_dir,
         task_id=task_id,
-        content=(f"Lattice-Reviewed-Commit: {reviewed_sha}\n\n{text}" if reviewed_sha else text),
+        content=(f"{reviewed_header}\n{text}" if reviewed_header else text),
         title=f"{review_type} ({role})",
         role=role,
         actor=actor,
@@ -807,6 +1019,8 @@ def _spawn_triple_pane(
     is_json: bool,
     quiet: bool,
     base: str | None,
+    head: str | None = None,
+    head_sha: str | None = None,
     worktree: Path | None = None,
 ) -> None:
     """Spawn a c11 pane that runs the trident review. Fire-and-forget.
@@ -827,6 +1041,8 @@ def _spawn_triple_pane(
         review_type=review_type,
         actor=actor,
         base=base,
+        head=head,
+        head_sha=head_sha,
         short_id=short_id,
         worktree=worktree,
     )
