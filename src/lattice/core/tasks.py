@@ -134,6 +134,7 @@ def compact_snapshot(snapshot: dict) -> dict:
         "complexity": snapshot.get("complexity"),
         "type": snapshot.get("type"),
         "assigned_to": snapshot.get("assigned_to"),
+        "created_by": snapshot.get("created_by"),
         "tags": snapshot.get("tags"),
         "done_at": snapshot.get("done_at"),
         "last_status_changed_at": snapshot.get("last_status_changed_at"),
